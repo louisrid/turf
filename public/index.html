@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="theme-color" content="#ffffff" />
+<title>TURF</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- LOGIN -->
+  <section id="screen-login" class="screen active">
+    <div class="brand">TURF</div>
+    <div class="tag">5-a-side. Move at once. Read the bluff.</div>
+    <button id="btn-new" class="primary">New team</button>
+    <div class="or">or log in with your code</div>
+    <div class="row">
+      <input id="login-code" inputmode="numeric" maxlength="4" placeholder="123" />
+      <button id="btn-login">Go</button>
+    </div>
+    <div id="login-err" class="err"></div>
+  </section>
+
+  <!-- HOME -->
+  <section id="screen-home" class="screen">
+    <div class="brand sm">TURF</div>
+    <div class="code-card">
+      <div class="label">Your code</div>
+      <div id="home-token" class="token">—</div>
+      <div class="sub">Remember this. It is your login on any device.</div>
+    </div>
+    <div id="home-record" class="record"></div>
+    <div id="home-squad" class="squad-strip"></div>
+    <button id="btn-edit" class="ghost">Edit squad</button>
+    <div class="hr"></div>
+    <button id="btn-create" class="primary">Create room</button>
+    <div class="or">play a friend</div>
+    <div class="row">
+      <input id="join-code" maxlength="4" placeholder="CODE" />
+      <button id="btn-join">Join</button>
+    </div>
+    <div id="home-err" class="err"></div>
+  </section>
+
+  <!-- SQUAD -->
+  <section id="screen-squad" class="screen">
+    <div class="head-row"><button id="sq-back" class="back">‹</button><h2>Your squad</h2></div>
+    <p class="hint">Pick 5: one keeper and four outfielders. Win matches to unlock better players.</p>
+    <div id="sq-active" class="sq-grid"></div>
+    <div class="hr"></div>
+    <h3>Owned players</h3>
+    <div id="sq-pool" class="sq-pool"></div>
+    <div id="sq-err" class="err"></div>
+    <button id="sq-save" class="primary">Save squad</button>
+  </section>
+
+  <!-- LOBBY -->
+  <section id="screen-lobby" class="screen center">
+    <div class="brand sm">Room ready</div>
+    <div class="code-card big">
+      <div class="label">Share this code</div>
+      <div id="lobby-code" class="token big">—</div>
+    </div>
+    <div class="spinner"></div>
+    <div class="sub">Waiting for your friend to join…</div>
+    <button id="lobby-cancel" class="ghost">Cancel</button>
+  </section>
+
+  <!-- MATCH -->
+  <section id="screen-match" class="screen match">
+    <div class="hud">
+      <div class="hud-side"><span id="hud-you" class="badge">YOU</span></div>
+      <div class="hud-score"><span id="hud-s0">0</span><span class="dash">–</span><span id="hud-s1">0</span></div>
+      <div class="hud-side right"><span id="hud-opp" class="badge red">OPP</span></div>
+    </div>
+    <div class="hud2">
+      <div id="hud-phase" class="phase">PLAN</div>
+      <div class="timerbar"><div id="timerfill"></div></div>
+      <div id="hud-poss" class="poss"></div>
+    </div>
+    <div id="pitch-wrap" class="pitch-wrap"><canvas id="pitch"></canvas></div>
+    <div id="action-bar" class="action-bar">
+      <div id="ab-title" class="ab-title">Tap one of your players</div>
+      <div id="ab-buttons" class="ab-buttons"></div>
+    </div>
+    <button id="btn-submit" class="primary submit">Submit orders</button>
+    <div id="match-msg" class="match-msg"></div>
+  </section>
+
+  <!-- DUEL OVERLAY -->
+  <div id="ov-duel" class="overlay">
+    <div class="ov-card">
+      <div id="duel-title" class="ov-title">1 v 1</div>
+      <div class="duel-stage">
+        <canvas id="duel-def" width="160" height="220"></canvas>
+        <div class="vs">vs</div>
+        <canvas id="duel-att" width="160" height="220"></canvas>
+      </div>
+      <div id="duel-prompt" class="ov-prompt"></div>
+      <div class="dir-row">
+        <button class="dir" data-d="L">◀ Left</button>
+        <button class="dir" data-d="C">▲ Centre</button>
+        <button class="dir" data-d="R">Right ▶</button>
+      </div>
+      <div id="duel-wait" class="ov-wait"></div>
+    </div>
+  </div>
+
+  <!-- SHOOT OVERLAY -->
+  <div id="ov-shoot" class="overlay">
+    <div class="ov-card">
+      <div id="shoot-title" class="ov-title">Shot</div>
+      <div class="goal-frame">
+        <div id="goal-zones" class="goal-zones"></div>
+        <canvas id="shoot-gk" width="64" height="64" class="gk-mini"></canvas>
+      </div>
+      <div id="shoot-prompt" class="ov-prompt"></div>
+      <div id="shoot-wait" class="ov-wait"></div>
+    </div>
+  </div>
+
+  <!-- END OVERLAY -->
+  <div id="ov-end" class="overlay">
+    <div class="ov-card">
+      <div id="end-title" class="ov-title big">—</div>
+      <div id="end-score" class="end-score"></div>
+      <div id="end-reward" class="reward"></div>
+      <button id="end-rematch" class="primary">Rematch</button>
+      <button id="end-home" class="ghost">Back to home</button>
+    </div>
+  </div>
+
+</div>
+<script src="/js/sprites.js"></script>
+<script src="/js/render.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

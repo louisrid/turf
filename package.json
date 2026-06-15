@@ -1,0 +1,18 @@
+{
+  "name": "turf",
+  "version": "0.1.0",
+  "description": "Turn-based 5-a-side football. Simultaneous orders, lane control, directional duels. Mobile-web vertical.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}
