@@ -10,7 +10,7 @@ import { makePack, squadAverage, makeSquadFor } from './lib/players.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
-const SERVER_VERSION = 'v0.5.5';
+const SERVER_VERSION = 'v0.5.8';
 const PLANNING_MS = Number(process.env.PLANNING_MS || 45000);
 const DECISION_MS = Number(process.env.DECISION_MS || 20000);
 const GOAL_TARGET = Number(process.env.GOAL_TARGET || 1);
@@ -88,10 +88,10 @@ function beginPlanning(room) {
   room.orders = [null, null];
   const m = room.match;
   m.phase = 'PLANNING';
-  const deadline = Date.now() + room.planMs;
+  const deadline = room.bot ? Date.now() + room.planMs : null;   // no clock in PvP — players take as long as they want
   room.deadline = deadline;
   broadcast(room, { t: 'turn', snapshot: engine.snapshot(m), deadline });
-  room.timer = setTimeout(() => doResolve(room), room.planMs + 300);   // fallback first, so a bot error can't hang the turn
+  if (room.bot) room.timer = setTimeout(() => doResolve(room), room.planMs + 300);   // safety only, so a bot error can't hang
   if (room.bot) {
     try { room.orders[room.bot.team] = bot.botOrders(m, room.bot.team, room.bot.diff); }
     catch (e) { console.error('botOrders', e); room.orders[room.bot.team] = {}; }
@@ -115,7 +115,7 @@ function doResolve(room) {
       const role = p.team === sh.team ? 'shooter' : 'gk';
       send(p.ws, { t: 'shoot', events, snapshot: snap, role,
                    shooterId: pending.shooterId, gkId: pending.gkId,
-                   deadline: Date.now() + room.decMs });
+                   deadline: room.bot ? Date.now() + room.decMs : null });
     });
     if (room.bot) {
       const role = room.bot.team === sh.team ? 'shooter' : 'gk';
@@ -123,7 +123,7 @@ function doResolve(room) {
       catch (e) { console.error('botShoot', e); room.shoot[room.bot.team === sh.team ? 0 : 1] = Math.random() < 0.5 ? 'L' : 'R'; }
       if (room.shoot[0] && room.shoot[1]) return finishShoot(room);
     }
-    room.timer = setTimeout(() => finishShoot(room), room.decMs + 300);
+    if (room.bot) room.timer = setTimeout(() => finishShoot(room), room.decMs + 300);   // safety only
     return;
   }
 
@@ -142,16 +142,14 @@ function finishShoot(room) {
 
 function afterResolve(room, events) {
   const m = room.match;
-  if (m.score[0] >= GOAL_TARGET || m.score[1] >= GOAL_TARGET) {
-    endMatch(room, m.score[0] > m.score[1] ? 0 : 1);
-    return;
-  }
-  if (m.turn > MAX_TURNS) {
-    endMatch(room, m.score[0] === m.score[1] ? -1 : (m.score[0] > m.score[1] ? 0 : 1));
-    return;
-  }
-  // hold longer after a shot so the result animation can play out
   const shotish = events && events.some(e => e.t === 'shootResult' || e.t === 'goal');
+  const over = m.score[0] >= GOAL_TARGET || m.score[1] >= GOAL_TARGET || m.turn > MAX_TURNS;
+  if (over) {
+    const winner = m.score[0] === m.score[1] ? -1 : (m.score[0] > m.score[1] ? 0 : 1);
+    if (shotish) room.timer = setTimeout(() => endMatch(room, winner), Math.max(RESOLVE_GAP_MS, SHOT_GAP_MS));  // let the penalty animate first
+    else endMatch(room, winner);
+    return;
+  }
   const gap = shotish ? Math.max(RESOLVE_GAP_MS, SHOT_GAP_MS) : RESOLVE_GAP_MS;
   room.timer = setTimeout(() => beginPlanning(room), gap);
 }

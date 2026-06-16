@@ -143,14 +143,15 @@
   function line(x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
 
   function drawRedLines() {
-    if (!snap || !snap.redRows) return;
-    const W = cell * COLS;
-    const lines = [
-      { y: px(0, snap.redRows[0]).y, color: 'rgba(47,107,255,0.9)' },     // home keeper zone (blue)
-      { y: px(0, snap.redRows[1] + 1).y, color: 'rgba(209,31,45,0.85)' }, // team1 keeper zone (red)
-    ];
+    if (!snap) return;
+    // keeper zone is the 2 rows by each goal. Draw in SCREEN space so the flip (you=1) can't skew it:
+    // you are always rendered at the bottom, so your (blue) line sits 2 rows from the bottom, opponent's (red) 2 from the top.
+    const W = cell * COLS, gridY = PAD * cell, gridH = cell * ROWS, depth = 2;
+    const yBottom = gridY + gridH - depth * cell;   // your end
+    const yTop = gridY + depth * cell;              // opponent end
     ctx.lineWidth = 2.5; ctx.setLineDash([7, 5]);
-    for (const ln of lines) { ctx.strokeStyle = ln.color; line(0, ln.y, W, ln.y); }
+    ctx.strokeStyle = 'rgba(47,107,255,0.9)'; line(0, yBottom, W, yBottom);
+    ctx.strokeStyle = 'rgba(209,31,45,0.85)'; line(0, yTop, W, yTop);
     ctx.setLineDash([]);
   }
 

@@ -1,17 +1,17 @@
 /* TURF client controller. Plain globals, no build step. */
 (function () {
-  const VERSION = 'v0.5.5';
+  const VERSION = 'v0.5.8';
   const $ = (id) => document.getElementById(id);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const cheb = (a, b) => Math.max(Math.abs(a.col - b.col), Math.abs(a.row - b.row));
   const isCarrier = (p) => St.snap && St.snap.ball.carrier === p.id;
-  const moveAllow = (p) => (p.pos === 'GK' ? 1 : (isCarrier(p) ? 2 : 3));
+  const moveAllow = (p) => (p.pos === 'GK' ? 2 : (isCarrier(p) ? 2 : 3));
   const shortReach = () => (St.snap && St.snap.passShort) || 3;
   const shortReachV = () => (St.snap && St.snap.passShortV) || 2;
   const longReach = () => (St.snap && St.snap.passLong) || 6;
   const passOk = (a, b) => Math.abs(a.col - b.col) <= shortReach() && Math.abs(a.row - b.row) <= shortReachV();
   const shootRow = (team) => (team === 0 ? 0 : (St.snap.rows - 1));
-  const canShoot = (p) => p.pos !== 'GK' && (p.team === 0 ? p.row <= 1 : p.row >= St.snap.rows - 2);
+  const canShoot = (p) => (p.team === 0 ? p.row <= 1 : p.row >= St.snap.rows - 2);
   const oppKeeperOut = () => !!(St.snap && St.snap.keeperOut && St.snap.keeperOut[1 - St.you]);
   const theCarrier = () => St.snap && St.snap.ball.carrier ? St.snap.players.find(p => p.id === St.snap.ball.carrier) : null;
   const tierLabel = (v) => v >= 88 ? 'SUPERB' : v >= 78 ? 'GOOD' : 'BAD';
@@ -69,6 +69,12 @@
   }
   const sendWs = (o) => { if (St.ws && St.ws.readyState === 1) St.ws.send(JSON.stringify(o)); };
   function onMsg(m) { try { dispatch(m); } catch (e) { console.error('onMsg', m && m.t, e); } }
+  function showToast(msg) {
+    const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(() => t.classList.add('in'));
+    setTimeout(() => { t.classList.remove('in'); setTimeout(() => t.remove(), 300); }, 1800);
+  }
   function showUpdateBanner() {
     if (document.getElementById('update-bar')) return;
     const bar = document.createElement('div'); bar.id = 'update-bar';
@@ -108,12 +114,8 @@
     const pill = (v, k) => `<div class="pill"><b>${v}</b><span>${k}</span></div>`;
     $('home-record').innerHTML = pill(wins, 'WON') + pill(draws, 'DREW') + pill(losses, 'LOST') + pill(p.goalsFor || 0, 'GOALS');
     const strip = $('home-squad'); strip.innerHTML = '';
-    (p.squad || []).forEach(pl => {
-      const d = document.createElement('div'); d.className = 'mini';
-      const c = mkCanvas(46, 60); paintFigure(c, pl, { team: 'blue' }); d.appendChild(c);
-      d.insertAdjacentHTML('beforeend', `<div class="nm">${pl.name.split(' ').slice(-1)[0]}</div>`);
-      strip.appendChild(d);
-    });
+    const gkFirst = (p.squad || []).slice().sort((a, b) => (a.pos === 'GK' ? 0 : 1) - (b.pos === 'GK' ? 0 : 1));
+    gkFirst.forEach(pl => strip.appendChild(playerCard(pl)));
     $('home-code').textContent = St.token || '----';
     $('home-ver').textContent = VERSION;
     $('tile-col-cap').textContent = `${allOwned().length} cards`;
@@ -153,10 +155,13 @@
   function renderSquad() {
     const owned = allOwned();
     const active = $('sq-active'); active.innerHTML = '';
+    const ordered = editActive.map(id => owned.find(x => x.id === id)).filter(Boolean)
+      .sort((a, b) => (a.pos === 'GK' ? 0 : 1) - (b.pos === 'GK' ? 0 : 1));
+    const haveGK = ordered.some(p => p.pos === 'GK');
     for (let i = 0; i < 3; i++) {
-      const id = editActive[i]; const p = id && owned.find(x => x.id === id);
+      const p = ordered[i];
       if (p) { const card = playerCard(p); card.onclick = () => toggleSquad(p); active.appendChild(card); }
-      else { const slot = document.createElement('div'); slot.className = 'card slot'; slot.textContent = '+'; active.appendChild(slot); }
+      else { const slot = document.createElement('div'); slot.className = 'card slot'; slot.textContent = (i === 0 && !haveGK) ? 'GK' : '+'; active.appendChild(slot); }
     }
     const pool = $('sq-pool'); pool.innerHTML = '';
     owned.forEach(p => {
@@ -181,7 +186,7 @@
     if (editActive.length !== 3 || gkCount !== 1) { renderSquad(); return; }
     St.profile.squad = editActive.map(id => owned.find(x => x.id === id));
     sendWs({ t: 'saveSquad', token: St.token, squad: St.profile.squad });
-    goHome();
+    showToast('Squad saved'); goHome();
   };
 
   // ---- collection -----------------------------------------------------------
@@ -273,7 +278,6 @@
     if (isCarrier(p)) {
       const list = [['Run with ball', 'move'], ['Short pass', 'pass'], ['Long pass', 'longpass']];
       if (canShoot(p)) list.unshift(['Shoot', 'shoot']);
-      if (p.pos !== 'GK' && oppKeeperOut()) list.push(['Chip', 'chip']);
       return list;
     }
     return [['Run', 'move']];
@@ -322,7 +326,6 @@
   function armAction(kind) {
     const p = St.snap.players.find(x => x.id === St.sel);
     if (kind === 'shoot') { St.orders[p.id] = { type: 'shoot' }; St.sel = null; St.action = null; hidePop(); submitOrders(); return; }
-    if (kind === 'chip') { St.orders[p.id] = { type: 'chip' }; clearSel(); return; }
     St.action = kind;
     if (kind === 'longpass') matchMsg(`Long ball ≈ ${longPct(p.pas)}% to control`);
     const inReach = (cell) => kind === 'pass' ? passOk(p, cell) : kind === 'longpass' ? cheb(p, cell) <= longReach() : cheb(p, cell) <= moveAllow(p);
@@ -389,7 +392,7 @@
         if (ev.t === 'goal') Pitch.addFloat('GOAL!', 2, ev.team === 0 ? 0 : St.snap.rows - 1, '#e0a200');
         else if (ev.t === 'intercept') Pitch.addFloat('INTERCEPTED', ev.at.col, ev.at.row, '#ff3b4e');
         else if (ev.t === 'loose') Pitch.addFloat('LOOSE BALL', ev.at.col, ev.at.row, '#b8860b');
-        else if (ev.t === 'control') Pitch.addFloat('IN BEHIND!', ev.at.col, ev.at.row, '#1f50d8');
+        else if (ev.t === 'control') Pitch.addFloat(ev.inBehind ? 'IN BEHIND!' : 'CONTROLLED', ev.at.col, ev.at.row, ev.inBehind ? '#e0a200' : '#1f50d8');
         else if (ev.t === 'challenge') Pitch.addFloat(ev.win === 'defender' ? 'WON BALL!' : 'SHIELDED', ev.at.col, ev.at.row, ev.win === 'defender' ? '#ff3b4e' : '#2f6bff');
       }
     };
@@ -423,7 +426,7 @@
     const shooter = m.shooterId ? m.snapshot.players.find(p => p.id === m.shooterId) : null;
     const gk = m.gkId ? m.snapshot.players.find(p => p.id === m.gkId) : null;
     const pct = isShooter && shooter ? shootPct(shooter) : null;
-    $('shoot-title').textContent = isShooter ? (pct + '% to score') : 'Save it!';
+    $('shoot-title').textContent = isShooter ? (St.vsBot ? (pct + '% to score') : 'Shoot!') : 'Save it!';
     $('shoot-prompt').textContent = isShooter ? 'Pick a corner — the keeper is guessing' : 'Pick your dive';
     $('shoot-wait').textContent = '';
     if (gk) paintFigure($('shoot-gk'), gk, { team: gk.team === 0 ? 'blue' : 'red', view: 'front' });
@@ -438,7 +441,6 @@
       zonesWrap.appendChild(z);
     });
     ov('ov-shoot', true);
-    autoDecision(() => sendWs({ t: 'shootSel', sel: Math.random() < 0.5 ? 'L' : 'R' }), m.deadline);
   }
   function moveKeeper(dive) { $('shoot-gk').style.left = dive === 'L' ? '30%' : '70%'; }
   function autoDecision(fn, deadline) { clearTimeout(St.decTimer); const ms = deadline ? Math.max(600, deadline - Date.now() - 600) : 8000; St.decTimer = setTimeout(fn, ms); }
