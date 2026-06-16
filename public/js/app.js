@@ -159,7 +159,7 @@
     card.insertAdjacentHTML('beforeend',
       `<div class="ovr">${p.ovr}</div><div class="pos">${p.pos}</div>` +
       `<div class="nm">${p.name}</div>` +
-      `<div class="meta"><span>PAC ${p.pac}</span><span>SHO ${p.sho}</span></div>`);
+      `<div class="meta"><span>${p.pos}</span><span>SHO ${p.sho}</span></div>`);
     return card;
   }
   $('sq-save').onclick = () => {
@@ -184,7 +184,7 @@
   function openCollection() { renderCollection(); show('screen-collection'); }
   function renderCollection() {
     const owned = allOwned();
-    $('col-count').textContent = `${owned.length} players owned`;
+    $('col-count').textContent = `${owned.length} players · only SHO matters in TURF`;
     const posOrder = { GK: 0, DEF: 1, MID: 2, FWD: 3 };
     const sorted = owned.slice();
     if (colSort === 'ovr') sorted.sort((a, b) => b.ovr - a.ovr);
@@ -199,8 +199,7 @@
       card.insertAdjacentHTML('beforeend',
         `<div class="ovr">${p.ovr}</div><div class="pos">${p.pos}</div>` +
         `<div class="nm">${p.name}</div>` +
-        `<div class="stats6"><span>PAC ${p.pac}</span><span>SHO ${p.sho}</span><span>PAS ${p.pas}</span>` +
-        `<span>DRI ${p.dri}</span><span>DEF ${p.def}</span><span>PHY ${p.phy}</span></div>` +
+        `<div class="sho"><span class="lbl">SHO</span><span class="val">${p.sho}</span></div>` +
         `<div class="rib">${r}</div>`);
       grid.appendChild(card);
     }
@@ -268,7 +267,7 @@
   // ---- planning -------------------------------------------------------------
   function onTurn(m) {
     St.snap = m.snapshot; St.phase = 'PLANNING'; St.orders = {}; St.sel = null; St.action = null; St.submitted = false;
-    ov('ov-shoot', false); ov('ov-duel', false);   // never let a leftover overlay block the board
+    ov('ov-shoot', false);   // never let a leftover overlay block the board
     Pitch.setSnapshot(m.snapshot, false);
     Pitch.setOverlay(null);
     updateHud();
@@ -338,7 +337,7 @@
 
   function armAction(kind) {
     const p = St.snap.players.find(x => x.id === St.sel);
-    if (kind === 'shoot') { St.orders[p.id] = { type: 'shoot' }; clearSel(); return; }
+    if (kind === 'shoot') { St.orders[p.id] = { type: 'shoot' }; St.sel = null; St.action = null; hidePop(); submitOrders(); return; }
     if (kind === 'chip') { St.orders[p.id] = { type: 'chip' }; clearSel(); return; }
     if (kind === 'backpass') { St.orders[p.id] = { type: 'backpass' }; clearSel(); return; }
     if (kind === 'winball') { St.orders[p.id] = { type: 'winball' }; clearSel(); return; }
@@ -476,8 +475,8 @@
     if (landDelay) setTimeout(float, landDelay); else float();
     updateHud();
     $('match-msg').textContent = '';
-    if (shotEv) { animateShot(shotEv); ov('ov-duel', false); }   // keep shoot overlay for the animation
-    else setTimeout(() => { ov('ov-duel', false); ov('ov-shoot', false); }, 250);
+    if (shotEv) { animateShot(shotEv); }   // keep shoot overlay for the animation
+    else setTimeout(() => { ov('ov-shoot', false); }, 250);
   }
 
   function animateShot(ev) {
@@ -501,21 +500,25 @@
     }, 2300);
   }
 
-  // ---- shoot mini-game ------------------------------------------------------
+  // ---- shoot 1 v 1 ----------------------------------------------------------
   function onShoot(m) {
     St.snap = m.snapshot; stopTimer();
     Pitch.setSnapshot(m.snapshot, true);
     updateHud();
     const isShooter = m.role === 'shooter';
+    const shooter = m.shooterId ? m.snapshot.players.find(p => p.id === m.shooterId) : null;
     const gk = m.gkId ? m.snapshot.players.find(p => p.id === m.gkId) : null;
-    $('shoot-title').textContent = isShooter ? 'Your shot' : 'Big save needed';
-    $('shoot-prompt').textContent = isShooter ? 'Pick a corner' : 'Pick your dive';
+    $('shoot-title').textContent = isShooter ? 'Your shot · 1 v 1' : 'Save it!';
+    $('shoot-prompt').textContent = isShooter ? 'Pick a corner — the keeper is guessing' : 'Pick your dive — guess the corner';
     $('shoot-wait').textContent = '';
-    if (gk) paintFigure($('shoot-gk'), gk, { team: gk.team === 0 ? 'blue' : 'red' });
-
+    if (gk) paintFigure($('shoot-gk'), gk, { team: gk.team === 0 ? 'blue' : 'red', view: 'front' });
+    if (shooter) paintFigure($('shoot-shooter'), shooter, { team: shooter.team === 0 ? 'blue' : 'red', view: 'back' });
+    const ball = $('shoot-ball'); ball.className = 'shoot-ball'; ball.style.left = '50%'; ball.style.top = '80%';
+    $('shoot-gk').style.left = '50%';
+    const res = $('shoot-result'); res.className = 'shoot-result'; res.textContent = '';
     const zonesWrap = $('goal-zones'); zonesWrap.innerHTML = '';
     let locked = false;
-    [['L', '◀ Left'], ['R', 'Right ▶']].forEach(([code, label]) => {
+    [['L', '◀ LEFT'], ['R', 'RIGHT ▶']].forEach(([code, label]) => {
       const z = document.createElement('div'); z.className = 'z'; z.textContent = label;
       z.onclick = () => {
         if (locked) return; locked = true;
@@ -526,12 +529,12 @@
       };
       zonesWrap.appendChild(z);
     });
-    setTimeout(() => ov('ov-shoot', true), 420);
+    ov('ov-shoot', true);
     autoDecision(() => { sendWs({ t: 'shootSel', sel: Math.random() < 0.5 ? 'L' : 'R' }); }, m.deadline);
   }
   function moveKeeper(dive) {
     const gk = $('shoot-gk');
-    gk.style.left = dive === 'L' ? '28%' : '72%';
+    gk.style.left = dive === 'L' ? '30%' : '70%';
   }
 
   // auto-pick just before the server deadline if the player did nothing
@@ -565,7 +568,7 @@
         setTimeout(() => flip.classList.add('on'), 500 + i * 450);
       });
     } else { label.textContent = ''; }
-    ov('ov-duel', false); ov('ov-shoot', false);
+    ov('ov-shoot', false);
     ov('ov-end', true);
   }
   $('end-rematch').onclick = () => { ov('ov-end', false); sendWs({ t: 'rematch' }); };

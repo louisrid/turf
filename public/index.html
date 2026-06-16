@@ -115,32 +115,14 @@
     </div>
   </section>
 
-  <!-- DUEL OVERLAY -->
-  <div id="ov-duel" class="overlay">
-    <div class="ov-card">
-      <div id="duel-title" class="ov-title">1 v 1</div>
-      <div class="duel-stage">
-        <canvas id="duel-def" width="160" height="220"></canvas>
-        <div class="vs">vs</div>
-        <canvas id="duel-att" width="160" height="220"></canvas>
-      </div>
-      <div id="duel-prompt" class="ov-prompt"></div>
-      <div class="dir-row">
-        <button class="dir" data-d="L">◀ Left</button>
-        <button class="dir" data-d="C">▲ Centre</button>
-        <button class="dir" data-d="R">Right ▶</button>
-      </div>
-      <div id="duel-wait" class="ov-wait"></div>
-    </div>
-  </div>
-
-  <!-- SHOOT OVERLAY -->
+  <!-- SHOOT OVERLAY: 1 v 1 goalmouth -->
   <div id="ov-shoot" class="overlay">
-    <div class="ov-card">
+    <div class="ov-card shootcard">
       <div id="shoot-title" class="ov-title">Shot</div>
-      <div class="goal-frame">
+      <div class="net">
         <div id="goal-zones" class="goal-zones"></div>
-        <canvas id="shoot-gk" width="64" height="64" class="gk-mini"></canvas>
+        <canvas id="shoot-gk" class="gk-fig" width="120" height="150"></canvas>
+        <canvas id="shoot-shooter" class="shooter-fig" width="120" height="150"></canvas>
         <div id="shoot-ball" class="shoot-ball"></div>
         <div id="shoot-result" class="shoot-result"></div>
       </div>
