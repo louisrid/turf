@@ -49,6 +49,9 @@
   const sendWs = (o) => { if (St.ws && St.ws.readyState === 1) St.ws.send(JSON.stringify(o)); };
 
   function onMsg(m) {
+    try { dispatch(m); } catch (e) { console.error('onMsg', m && m.t, e); }
+  }
+  function dispatch(m) {
     switch (m.t) {
       case 'token': St.token = m.token; St.profile = m.profile; goHome(); break;
       case 'profile': St.profile = m.profile; if (St.token == null) St.token = m.profile.token; goHome(); break;
@@ -56,7 +59,6 @@
       case 'matchStart': startMatch(m); break;
       case 'turn': onTurn(m); break;
       case 'resolve': onResolve(m); break;
-      case 'duel': onDuel(m); break;
       case 'shoot': onShoot(m); break;
       case 'matchEnd': onEnd(m); break;
       case 'oppLeft': $('match-msg').textContent = 'Opponent left.'; setTimeout(goHome, 1200); break;
@@ -209,7 +211,8 @@
     ['The pitch', '<b>3-a-side</b> on a 6x8 grid. Goals sit just outside each end; a line marks each keeper\'s zone.'],
     ['Move at once', 'Order all your players, then Submit. Both teams resolve at the <b>same time</b>, so it\'s about reading the opponent.'],
     ['Moving', 'Tap a player, then a square. <b>2 squares</b> off the ball, <b>1</b> while carrying. Diagonals count.'],
-    ['On the ball', 'Dribble, <b>short pass</b> (cut if a defender sits in the lane), <b>long pass</b> (sails over but lands loose), or pass <b>back to keeper</b> to reset.'],
+    ['On the ball', 'Dribble, <b>short pass</b> (cut only if a defender sits in the lane), a <b>long ball</b> (lofts it forward: a team-mate in space brings it down, but into a crowd it drops loose; short cooldown), or pass <b>back to keeper</b> to reset.'],
+    ['Loose balls', 'A <b>loose ball</b> belongs to no one and pulses on the pitch. You get one when a long ball drops into traffic, a shot is parried, or a pass runs into space. Whoever is <b>closest next turn wins it</b>, so send someone to chase it down.'],
     ['Off the ball', 'Your other player can come short, drop deep, or run in behind. Two defenders can\'t cover all three.'],
     ['Defending', '<b>Press</b> to win the ball (miss and you\'re a beat behind), or drop and stay compact. Win it and you can\'t be tackled straight back.'],
     ['Shooting', 'Shoot from the row in front of goal: you pick a corner, the keeper picks a dive. <b>SHO</b> is the only stat. Chip a keeper who has rushed out.'],
@@ -257,7 +260,7 @@
     $('hud-s1').textContent = s.score[1 - St.you];
     const att = s.possession === St.you;
     const loose = s.possession === -1;
-    $('hud-poss').textContent = loose ? 'Loose ball' : att ? 'You attack' : 'Defend';
+    $('hud-poss').textContent = loose ? 'Ball loose — chase it' : att ? 'You attack' : 'You defend';
     $('hud-phase').textContent = s.phase === 'PLANNING' ? 'PLAN' : s.phase;
     $('timerfill').style.background = att ? 'var(--blue)' : 'var(--red)';
   }
@@ -265,6 +268,7 @@
   // ---- planning -------------------------------------------------------------
   function onTurn(m) {
     St.snap = m.snapshot; St.phase = 'PLANNING'; St.orders = {}; St.sel = null; St.action = null; St.submitted = false;
+    ov('ov-shoot', false); ov('ov-duel', false);   // never let a leftover overlay block the board
     Pitch.setSnapshot(m.snapshot, false);
     Pitch.setOverlay(null);
     updateHud();
@@ -280,17 +284,19 @@
   function attacking() { return St.snap.possession === St.you || St.snap.possession === -1; }
 
   function actionsFor(p) {
+    const longOk = St.snap.longCd ? St.snap.longCd[St.you] === 0 : true;
     if (St.snap.possession === (1 - St.you)) { // defending
       const list = [['Move', 'move']];
       const cr = theCarrier();
-      if (cr && p.pos !== 'GK' && cheb(p, cr) <= 3) list.push(['Press', 'winball']);
+      if (cr && p.pos !== 'GK' && cheb(p, cr) <= 3 && !(cr.protect > 0)) list.push(['Press', 'winball']);
       return list;
     }
     if (isCarrier(p)) {
-      if (p.pos === 'GK') return [['Dribble', 'move'], ['Short pass', 'pass'], ['Long pass', 'longpass']];
-      const list = [['Dribble', 'move'], ['Short pass', 'pass'], ['Long pass', 'longpass'], ['To keeper', 'backpass']];
+      const list = [['Dribble', 'move'], ['Short pass', 'pass']];
+      if (longOk) list.push(['Long pass', 'longpass']);
+      if (p.pos !== 'GK') list.push(['To keeper', 'backpass']);
       if (canShoot(p)) list.unshift(['Shoot', 'shoot']);
-      if (oppKeeperOut()) list.push(['Chip', 'chip']);
+      if (p.pos !== 'GK' && oppKeeperOut()) list.push(['Chip', 'chip']);
       return list;
     }
     return [['Run', 'move']];
@@ -447,18 +453,27 @@
     St.snap = m.snapshot; stopTimer();
     $('btn-submit').style.display = 'none';
     const shotEv = m.events.find(ev => ev.t === 'shootResult');
-    // floats from events
-    for (const ev of m.events) {
-      if (ev.t === 'goal') Pitch.addFloat('GOAL!', 2, ev.team === 0 ? 0 : St.snap.rows - 1, '#19a64a');
-      else if (ev.t === 'intercept') Pitch.addFloat('INTERCEPTED', ev.at.col, ev.at.row, '#d11f2d');
-      else if (ev.t === 'loose') Pitch.addFloat('LOOSE!', ev.at.col, ev.at.row, '#b8860b');
-      else if (ev.t === 'challenge') {
-        const txt = ev.win === 'defender' ? 'WON BALL!' : ev.shielded ? 'HELD OFF' : 'KEPT IT';
-        const col = ev.win === 'defender' ? '#d11f2d' : '#1f4fd1';
-        Pitch.addFloat(txt, ev.at.col, ev.at.row, col);
-      }
-    }
+    const lp = m.events.find(ev => ev.t === 'longpass');
+    const sp = m.events.find(ev => ev.t === 'pass');
     Pitch.setSnapshot(m.snapshot, true);
+    // ball flight: long ball arcs onto the square you aimed at, then bounces to where it settles
+    let landDelay = 0;
+    if (lp) { Pitch.flyBall([{ col: lp.to.col, row: lp.to.row }], { lofts: [0.95, 0.45], durs: [380, 280] }); landDelay = 380; }
+    else if (sp) { Pitch.flyBall([], { lofts: [0.16], durs: [300] }); landDelay = 120; }
+    // floats from events (delayed so a loose/controlled call lands with the ball)
+    const float = () => {
+      for (const ev of m.events) {
+        if (ev.t === 'goal') Pitch.addFloat('GOAL!', 2, ev.team === 0 ? 0 : St.snap.rows - 1, '#19a64a');
+        else if (ev.t === 'intercept') Pitch.addFloat('INTERCEPTED', ev.at.col, ev.at.row, '#d11f2d');
+        else if (ev.t === 'loose') Pitch.addFloat('LOOSE BALL', ev.at.col, ev.at.row, '#b8860b');
+        else if (ev.t === 'control') Pitch.addFloat('IN BEHIND!', ev.at.col, ev.at.row, '#1f9d55');
+        else if (ev.t === 'challenge') {
+          const txt = ev.win === 'defender' ? 'WON BALL!' : ev.shielded ? 'HELD OFF' : 'KEPT IT';
+          Pitch.addFloat(txt, ev.at.col, ev.at.row, ev.win === 'defender' ? '#d11f2d' : '#1f4fd1');
+        }
+      }
+    };
+    if (landDelay) setTimeout(float, landDelay); else float();
     updateHud();
     $('match-msg').textContent = '';
     if (shotEv) { animateShot(shotEv); ov('ov-duel', false); }   // keep shoot overlay for the animation
@@ -484,33 +499,6 @@
       ov('ov-shoot', false);
       ball.className = 'shoot-ball'; result.className = 'shoot-result'; result.textContent = '';
     }, 2300);
-  }
-
-  // ---- duel mini-game -------------------------------------------------------
-  function onDuel(m) {
-    St.snap = m.snapshot; stopTimer();
-    Pitch.setSnapshot(m.snapshot, true);
-    updateHud();
-    const att = m.snapshot.players.find(p => p.id === m.attackerId);
-    const def = m.snapshot.players.find(p => p.id === m.defenderId);
-    paintFigure($('duel-att'), att, { team: att.team === 0 ? 'blue' : 'red', view: 'back' });
-    paintFigure($('duel-def'), def, { team: def.team === 0 ? 'blue' : 'red', view: 'front' });
-    const isAtt = m.role === 'attacker';
-    $('duel-title').textContent = isAtt ? `${att.name} on the ball` : `${def.name} closes in`;
-    $('duel-prompt').textContent = isAtt ? 'Pick the way you go' : 'Guess the way they go';
-    $('duel-wait').textContent = '';
-    const btns = document.querySelectorAll('#ov-duel .dir');
-    btns.forEach(b => {
-      b.disabled = false; b.classList.remove('act');
-      b.onclick = () => {
-        btns.forEach(x => { x.disabled = true; });
-        b.classList.add('act');
-        $('duel-wait').textContent = 'Locked in…';
-        sendWs({ t: 'duelDir', dir: b.dataset.d });
-      };
-    });
-    setTimeout(() => ov('ov-duel', true), 420);
-    autoDecision(() => { sendWs({ t: 'duelDir', dir: 'C' }); }, m.deadline);
   }
 
   // ---- shoot mini-game ------------------------------------------------------

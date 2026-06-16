@@ -7,7 +7,7 @@
   let cv, ctx, you = 0, cell = 70;
   let snap = null;
   const disp = new Map();
-  let ball = { x: 1.5, y: 3 }, ballTarget = { x: 1.5, y: 3 };
+  let ball = { x: 1.5, y: 3, lift: 0 }, ballTarget = { x: 1.5, y: 3 };
   let anims = [], ballAnim = null, floats = [], overlay = null, raf = null;
 
   const aToR = (col, row) => you === 1 ? { col: COLS - 1 - col, row: ROWS - 1 - row } : { col, row };
@@ -57,8 +57,8 @@
     else if (s.ball.loose) { const r = aToR(s.ball.loose.col, s.ball.loose.row); bx = r.col; by = r.row; }
     else { bx = ball.x; by = ball.y; }
     ballTarget = { x: bx, y: by };
-    if (animate) ballAnim = { from: { ...ball }, to: { ...ballTarget }, t0: performance.now(), dur: 380 };
-    else ball = { ...ballTarget };
+    if (animate) ballAnim = { segs: [{ x0: ball.x, y0: ball.y, x1: bx, y1: by, loft: 0, dur: 380 }], i: 0, t0: performance.now() };
+    else { ball = { x: bx, y: by, lift: 0 }; ballAnim = null; }
   }
 
   function addFloat(text, acol, arow, color) {
@@ -86,11 +86,14 @@
       return k < 1;
     });
     if (ballAnim) {
-      const k = Math.min(1, (now - ballAnim.t0) / ballAnim.dur), e = ease(k);
-      ball = { x: ballAnim.from.x + (ballAnim.to.x - ballAnim.from.x) * e, y: ballAnim.from.y + (ballAnim.to.y - ballAnim.from.y) * e };
-      if (k >= 1) ballAnim = null;
-    } else ball = { ...ballTarget };
-    draw(now);
+      const seg = ballAnim.segs[ballAnim.i];
+      const k = Math.min(1, (now - ballAnim.t0) / seg.dur), e = ease(k);
+      ball.x = seg.x0 + (seg.x1 - seg.x0) * e;
+      ball.y = seg.y0 + (seg.y1 - seg.y0) * e;
+      ball.lift = (seg.loft || 0) * Math.sin(Math.PI * k) * cell;
+      if (k >= 1) { ballAnim.i++; ballAnim.t0 = now; if (ballAnim.i >= ballAnim.segs.length) { ballAnim = null; ball = { x: ballTarget.x, y: ballTarget.y, lift: 0 }; } }
+    } else { ball = { x: ballTarget.x, y: ballTarget.y, lift: 0 }; }
+    try { draw(now); } catch (e) { /* never let one frame kill the loop */ }
   }
 
   function draw(now) {
@@ -116,7 +119,7 @@
     const ps = snap ? snap.players.slice() : [];
     ps.sort((a, b) => (disp.get(a.id)?.row || 0) - (disp.get(b.id)?.row || 0));
     for (const p of ps) drawPlayer(p);
-    drawBall(ball.x, ball.y);
+    drawBall(snap && snap.ball && !snap.ball.carrier && !!snap.ball.loose);
 
     floats = floats.filter(f => {
       const k = (now - f.t0) / f.dur; if (k >= 1) return false;
@@ -194,14 +197,35 @@
     ctx.fillText(p.name.split(' ').slice(-1)[0], x + cell / 2, y + cell - 3); ctx.textAlign = 'left';
   }
 
-  function drawBall(bx, by) {
-    const x = bx * cell + cell / 2, y = (by + PAD) * cell + cell / 2, rr = cell * 0.12;
-    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.fill();
+  function drawBall(loose) {
+    const bx = ball.x, by = ball.y, lift = ball.lift || 0;
+    const cx = bx * cell + cell / 2, gy = (by + PAD) * cell + cell / 2, cy = gy - lift, rr = cell * 0.12;
+    if (loose && !ballAnim) {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 240);
+      ctx.strokeStyle = `rgba(184,134,11,${0.30 + 0.45 * pulse})`;
+      ctx.lineWidth = 2.5; ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.arc(cx, gy, cell * (0.30 + 0.06 * pulse), 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    if (lift > 0.5) { ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.beginPath(); ctx.ellipse(cx, gy, rr, rr * 0.4, 0, 0, Math.PI * 2); ctx.fill(); }
+    const r2 = rr * (1 + Math.min(0.5, lift / (cell * 1.2)) * 0.4);
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx, cy, r2, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#111'; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(x, y, rr * 0.42, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(cx, cy, r2 * 0.42, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // ball flight through optional mid waypoints, settling at ballTarget; lofts/durs are per segment
+  function flyBall(waypointsAbs, opts) {
+    opts = opts || {};
+    const lofts = opts.lofts || [], durs = opts.durs || [];
+    const mapped = (waypointsAbs || []).map(c => { const r = aToR(c.col, c.row); return { x: r.col, y: r.row }; });
+    const pts = [{ x: ball.x, y: ball.y }, ...mapped, { x: ballTarget.x, y: ballTarget.y }];
+    const segs = [];
+    for (let i = 0; i < pts.length - 1; i++) segs.push({ x0: pts[i].x, y0: pts[i].y, x1: pts[i + 1].x, y1: pts[i + 1].y, loft: lofts[i] || 0, dur: durs[i] || 320 });
+    if (segs.length) ballAnim = { segs, i: 0, t0: performance.now() };
   }
 
   function screenOf(col, row) { const c = center(col, row); return { x: (cv.offsetLeft || 0) + c.x, y: (cv.offsetTop || 0) + c.y }; }
 
-  window.Pitch = { init, setSnapshot, cellAt, centerOf: center, screenOf, get cell() { return cell; }, setOverlay, addFloat, get you() { return you; } };
+  window.Pitch = { init, setSnapshot, cellAt, centerOf: center, screenOf, get cell() { return cell; }, setOverlay, addFloat, flyBall, get you() { return you; } };
 })();

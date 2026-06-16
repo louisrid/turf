@@ -49,8 +49,8 @@ function startMatch(room) {
   room.match.easyBotTeam = (room.bot && room.bot.diff === 'easy') ? room.bot.team : -1;
   room.orders = [null, null];
   room.over = false;
-  room.planMs = room.bot ? PLANNING_MS * 4 : PLANNING_MS;
-  room.decMs = room.bot ? DECISION_MS * 2 : DECISION_MS;
+  room.planMs = room.bot ? Math.min(PLANNING_MS, 60000) : PLANNING_MS;
+  room.decMs = room.bot ? Math.min(DECISION_MS, 18000) : DECISION_MS;
   for (const p of room.players)
     send(p.ws, { t: 'matchStart', you: p.team, snapshot: engine.snapshot(room.match),
                  vsBot: !!room.bot, difficulty: room.bot ? room.bot.diff : null, goalTarget: GOAL_TARGET });
@@ -65,8 +65,12 @@ function beginPlanning(room) {
   const deadline = Date.now() + room.planMs;
   room.deadline = deadline;
   broadcast(room, { t: 'turn', snapshot: engine.snapshot(m), deadline });
-  if (room.bot) { room.orders[room.bot.team] = bot.botOrders(m, room.bot.team, room.bot.diff); maybeResolve(room); }
-  room.timer = setTimeout(() => doResolve(room), room.planMs + 300);
+  room.timer = setTimeout(() => doResolve(room), room.planMs + 300);   // fallback first, so a bot error can't hang the turn
+  if (room.bot) {
+    try { room.orders[room.bot.team] = bot.botOrders(m, room.bot.team, room.bot.diff); }
+    catch (e) { console.error('botOrders', e); room.orders[room.bot.team] = {}; }
+    maybeResolve(room);
+  }
 }
 
 function maybeResolve(room) { if (room.orders[0] && room.orders[1]) doResolve(room); }
@@ -77,24 +81,6 @@ function doResolve(room) {
   if (m.phase !== 'PLANNING' || room.over) return;
   const { events, pending } = engine.resolveOrders(m, room.orders[0] || {}, room.orders[1] || {});
 
-  if (pending && pending.kind === 'duel') {
-    const snap = engine.snapshot(m);
-    const att = snap.players.find(p => p.id === pending.attackerId);
-    room.duel = [null, null];
-    room.players.forEach(p => {
-      const role = p.team === att.team ? 'attacker' : 'defender';
-      send(p.ws, { t: 'duel', events, snapshot: snap, role,
-                   attackerId: pending.attackerId, defenderId: pending.defenderId,
-                   deadline: Date.now() + room.decMs });
-    });
-    if (room.bot) {
-      const role = room.bot.team === att.team ? 'attacker' : 'defender';
-      room.duel[room.bot.team === att.team ? 0 : 1] = bot.botDuel(m, role, room.bot.diff);
-      if (room.duel[0] && room.duel[1]) return finishDuel(room);
-    }
-    room.timer = setTimeout(() => finishDuel(room), room.decMs + 300);
-    return;
-  }
   if (pending && pending.kind === 'shoot') {
     const snap = engine.snapshot(m);
     const sh = snap.players.find(p => p.id === pending.shooterId);
@@ -107,22 +93,14 @@ function doResolve(room) {
     });
     if (room.bot) {
       const role = room.bot.team === sh.team ? 'shooter' : 'gk';
-      room.shoot[room.bot.team === sh.team ? 0 : 1] = bot.botShoot(m, role, room.bot.diff);
+      try { room.shoot[room.bot.team === sh.team ? 0 : 1] = bot.botShoot(m, role, room.bot.diff); }
+      catch (e) { console.error('botShoot', e); room.shoot[room.bot.team === sh.team ? 0 : 1] = Math.random() < 0.5 ? 'L' : 'R'; }
       if (room.shoot[0] && room.shoot[1]) return finishShoot(room);
     }
     room.timer = setTimeout(() => finishShoot(room), room.decMs + 300);
     return;
   }
 
-  broadcast(room, { t: 'resolve', events, snapshot: engine.snapshot(m) });
-  afterResolve(room, events);
-}
-
-function finishDuel(room) {
-  clearTimers(room);
-  const m = room.match;
-  if (m.phase !== 'DUEL') return;
-  const { events } = engine.resolveDuel(m, room.duel[0] || 'C', room.duel[1] || 'C');
   broadcast(room, { t: 'resolve', events, snapshot: engine.snapshot(m) });
   afterResolve(room, events);
 }
@@ -285,15 +263,6 @@ wss.on('connection', (ws) => {
           const me = room.players.find(p => p.ws === ws); if (!me) return;
           room.orders[me.team] = msg.orders || {};
           maybeResolve(room);
-          break;
-        }
-        case 'duelDir': {
-          const room = rooms.get(ws.roomCode); if (!room) return;
-          const me = room.players.find(p => p.ws === ws); if (!me) return;
-          const att = room.match.players.find(p => p.id === room.match.pending?.attackerId);
-          if (!att) return;
-          room.duel[me.team === att.team ? 0 : 1] = msg.dir;
-          if (room.duel[0] && room.duel[1]) finishDuel(room);
           break;
         }
         case 'shootSel': {
