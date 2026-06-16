@@ -1,6 +1,6 @@
 /* TURF client controller. Plain globals, no build step. */
 (function () {
-  const VERSION = 'v0.6.5';
+  const VERSION = 'v0.6.6';
   const $ = (id) => document.getElementById(id);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const cheb = (a, b) => Math.max(Math.abs(a.col - b.col), Math.abs(a.row - b.row));
@@ -21,8 +21,8 @@
     const rowOff = Math.abs(p.row - shootRow(p.team));
     const edge = (p.col === 0 || p.col === St.snap.cols - 1) ? 1 : 0;
     const pen = 0.08 * rowOff + 0.12 * edge;
-    const pOpen = clamp(0.72 + (p.sho - 72) * 0.013 - pen, 0.50, 0.98);
-    const pCov = clamp(0.10 + (p.sho - 72) * 0.013 - pen * 0.4, 0.05, 0.50);
+    const pOpen = clamp(0.55 + (p.sho - 72) * 0.021 - pen, 0.40, 0.98);
+    const pCov = clamp(0.05 + (p.sho - 72) * 0.024 - pen * 0.4, 0.02, 0.55);
     return Math.round(100 * (0.5 * pOpen + 0.5 * pCov));
   }
   const longPct = (pas) => Math.round(100 * clamp(0.66 + (pas - 72) * 0.015, 0.60, 0.96));
@@ -122,15 +122,12 @@
     $('tile-col-cap').textContent = `${allOwned().length} cards`;
     show('screen-home'); maybeFirstTutorial();
   }
-  const modeOf = (fr, l2) => $(fr).checked ? 'freddie' : ($(l2).checked ? 'louis2' : 'normal');
-  const exclusive = (a, b) => { $(a).addEventListener('change', () => { if ($(a).checked) $(b).checked = false; }); };
-  exclusive('freddie-toggle', 'louis2-toggle'); exclusive('louis2-toggle', 'freddie-toggle');
-  exclusive('diff-freddie', 'diff-louis2'); exclusive('diff-louis2', 'diff-freddie');
-  $('btn-solo').onclick = () => { $('diff-freddie').checked = false; $('diff-louis2').checked = false; ov('ov-diff', true); };
-  $('diff-easy').onclick = () => { ov('ov-diff', false); sendWs({ t: 'soloMatch', difficulty: 'easy', mode: modeOf('diff-freddie', 'diff-louis2') }); };
-  $('diff-hard').onclick = () => { ov('ov-diff', false); sendWs({ t: 'soloMatch', difficulty: 'hard', mode: modeOf('diff-freddie', 'diff-louis2') }); };
+  const modeOf = (fr) => $(fr).checked ? 'freddie' : 'normal';
+  $('btn-solo').onclick = () => { $('diff-freddie').checked = false; ov('ov-diff', true); };
+  $('diff-easy').onclick = () => { ov('ov-diff', false); sendWs({ t: 'soloMatch', difficulty: 'easy', mode: modeOf('diff-freddie') }); };
+  $('diff-hard').onclick = () => { ov('ov-diff', false); sendWs({ t: 'soloMatch', difficulty: 'hard', mode: modeOf('diff-freddie') }); };
   $('diff-cancel').onclick = () => ov('ov-diff', false);
-  $('btn-online').onclick = () => { $('freddie-toggle').checked = false; $('louis2-toggle').checked = false; $('lobby-box').classList.add('hidden'); $('online-err').textContent = ''; show('screen-online'); };
+  $('btn-online').onclick = () => { $('freddie-toggle').checked = false; $('lobby-box').classList.add('hidden'); $('online-err').textContent = ''; show('screen-online'); };
   $('btn-collection').onclick = () => openSquad();
   $('btn-rules').onclick = () => startTutorial(false);
   $('btn-edit').onclick = openSquad;
@@ -149,7 +146,7 @@
   };
   $('code-cancel').onclick = () => ov('ov-code', false);
   $('code-go').onclick = () => { const c = $('code-input').value.trim(); if (c) { lsSet('turf_token', c); St.token = c; sendWs({ t: 'login', token: c }); ov('ov-code', false); } };
-  $('btn-create').onclick = () => sendWs({ t: 'createRoom', mode: modeOf('freddie-toggle', 'louis2-toggle') });
+  $('btn-create').onclick = () => sendWs({ t: 'createRoom', mode: modeOf('freddie-toggle') });
   $('btn-join').onclick = () => { const c = $('join-code').value.trim().toUpperCase(); if (c) sendWs({ t: 'joinRoom', code: c }); };
   $('lobby-cancel').onclick = () => { sendWs({ t: 'leave' }); goHome(); };
 

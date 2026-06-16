@@ -10,7 +10,7 @@ import { makePack, squadAverage, makeSquadFor } from './lib/players.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
-const SERVER_VERSION = 'v0.6.5';
+const SERVER_VERSION = 'v0.6.6';
 const PLANNING_MS = Number(process.env.PLANNING_MS || 45000);
 const DECISION_MS = Number(process.env.DECISION_MS || 20000);
 const GOAL_TARGET = Number(process.env.GOAL_TARGET || 1);
