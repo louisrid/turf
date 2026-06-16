@@ -10,9 +10,10 @@ import { makePack, squadAverage, makeSquadFor } from './lib/players.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
+const SERVER_VERSION = 'v0.5.4';
 const PLANNING_MS = Number(process.env.PLANNING_MS || 45000);
 const DECISION_MS = Number(process.env.DECISION_MS || 20000);
-const GOAL_TARGET = Number(process.env.GOAL_TARGET || 3);
+const GOAL_TARGET = Number(process.env.GOAL_TARGET || 1);
 const MAX_TURNS = Number(process.env.MAX_TURNS || 90);
 const RESOLVE_GAP_MS = Number(process.env.RESOLVE_GAP_MS || 1500);
 const SHOT_GAP_MS = Number(process.env.SHOT_GAP_MS || 2800);
@@ -23,7 +24,8 @@ app.use(express.static(path.join(__dirname, 'public'), {
   etag: true, lastModified: true, maxAge: 0,
   setHeaders: (res, p) => {
     // never let phones/CDNs serve a stale build of the app shell or assets
-    if (/\.(html|js|css)$/.test(p)) res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    if (/\.html$/.test(p)) res.setHeader('Cache-Control', 'no-store, must-revalidate');
+    else if (/\.(js|css)$/.test(p)) res.setHeader('Cache-Control', 'no-cache, must-revalidate');
   }
 }));
 app.get('/health', (_, res) => res.json({ ok: true, backend }));
@@ -301,6 +303,7 @@ function resumeRoom(ws) {
 wss.on('connection', (ws) => {
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
+  try { ws.send(JSON.stringify({ t: 'sver', v: SERVER_VERSION })); } catch {}
   ws.on('message', async (raw) => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }
     try {

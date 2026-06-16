@@ -10,7 +10,7 @@
   --gold:#b8860b; --maxw:480px; --shadow:rgba(16,24,40,.13);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;height:100%}
+html,body{margin:0;height:100%;touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 body{background:var(--bg);color:var(--ink);font-family:var(--body);font-weight:500;
   overflow:hidden;overscroll-behavior:none;-webkit-font-smoothing:antialiased}
 #app{height:100dvh;position:relative}
@@ -137,7 +137,7 @@ button{font-family:var(--body);cursor:pointer;border:none;color:inherit;backgrou
 
 /* tier pills */
 .tg{font-size:9px;font-weight:800;letter-spacing:.3px;padding:2px 8px;border-radius:999px;color:#fff;display:inline-block}
-.tg.t-bad{background:#6b7280}.tg.t-good{background:#10b75c}.tg.t-superb{background:#e0a200}
+.tg.t-bad{background:#e0392f}.tg.t-good{background:#e0a200}.tg.t-superb{background:#10b75c}
 .rar{font-size:11px;font-weight:800;letter-spacing:.2px;padding:2px 9px;border-radius:999px;color:#fff;display:inline-block;vertical-align:middle}
 .rar-common{background:#6b7280}.rar-uncommon{background:#2e9e54}.rar-rare{background:#2f6bff}.rar-elite{background:#e0a200}
 .rar-legendary{background:linear-gradient(90deg,#a64bf4,#ff5db1)}
@@ -152,9 +152,12 @@ button{font-family:var(--body);cursor:pointer;border:none;color:inherit;backgrou
 .mhud-score i{color:var(--sub);font-style:normal;margin:0 8px}
 .pitch-wrap{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
 #pitch{display:block}
-.match-actions{display:flex}
+.match-actions{display:flex;min-height:54px}
 .submit{width:100%;font-size:clamp(17px,4.8vw,19px);padding:15px}
 .submit.waiting{background:var(--panel2);color:var(--sub);box-shadow:none}
+.long-status{text-align:center;font-weight:800;font-size:12px;letter-spacing:.3px;min-height:17px;margin:-2px 0 2px}
+.long-status.ready{color:var(--green2)}
+.long-status.cooling{color:var(--sub)}
 .match-foot{display:flex;justify-content:center}
 .leave-btn{background:var(--red);color:#fff;font-weight:700;font-size:13px;letter-spacing:.3px;
   border-radius:12px;padding:10px 22px;box-shadow:0 3px 0 var(--red2)}
@@ -167,13 +170,15 @@ button{font-family:var(--body);cursor:pointer;border:none;color:inherit;backgrou
 .ab-pop .ab-head{text-align:center;margin-bottom:10px}
 .ab-pop .ab-name{font-size:15px;font-weight:800;color:var(--ink);display:flex;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap;margin-bottom:8px}
 .ab-pop .ab-pos{font-size:11px;font-weight:800;color:var(--sub)}
-.ab-pop .cstats{max-width:172px;margin:0 auto;gap:4px}
-.ab-pop .cs-k{font-size:11px}
-.ab-pop .cstats .tg{font-size:11px;padding:3px 11px}
+.ab-pop .cstats{max-width:172px;margin:0 auto;gap:5px;background:none;padding:0}
+.ab-pop .cs-k{font-size:12px;font-weight:800;color:var(--ink)}
+.ab-pop .cstats .tg{font-size:11px;padding:3px 12px}
 .ab-pop .ab-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:232px}
 .ab-pop button{font:inherit;font-weight:700;font-size:13px;padding:9px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);color:var(--ink)}
 .ab-pop button.act{background:var(--blue);border-color:var(--blue);color:#fff}
 .ab-pop button:active{transform:translateY(1px)}
+.ab-pop button.off,.ab-pop button:disabled{opacity:.5;background:var(--panel2);color:var(--sub);box-shadow:none}
+.ab-pop button.warn{background:#ffe9ea;border-color:var(--red);color:var(--red2)}
 .ab-pop .ab-hint{font-size:11px;line-height:1.4;color:var(--sub);text-align:center;margin-top:8px;max-width:232px}
 .ab-pop .ab-hint b{color:var(--ink)}
 
@@ -254,3 +259,9 @@ button{font-family:var(--body);cursor:pointer;border:none;color:inherit;backgrou
 .shoot-result.show{animation:resultPop .32s cubic-bezier(.2,1.4,.4,1)}
 .badge{transition:background .2s}
 @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+
+/* stale-build reload banner */
+#update-bar{position:fixed;top:0;left:0;right:0;z-index:9999;display:flex;align-items:center;justify-content:center;gap:12px;
+  background:var(--ink);color:#fff;font-weight:800;font-size:13px;padding:10px 14px;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+#update-bar button{font:inherit;font-weight:800;background:var(--blue);color:#fff;border:0;border-radius:10px;padding:7px 16px}
+#update-bar button:active{transform:translateY(1px)}

@@ -1,13 +1,15 @@
 /* TURF client controller. Plain globals, no build step. */
 (function () {
-  const VERSION = 'v0.5.2';
+  const VERSION = 'v0.5.4';
   const $ = (id) => document.getElementById(id);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const cheb = (a, b) => Math.max(Math.abs(a.col - b.col), Math.abs(a.row - b.row));
   const isCarrier = (p) => St.snap && St.snap.ball.carrier === p.id;
   const moveAllow = (p) => (p.pos === 'GK' ? 1 : (isCarrier(p) ? 2 : 3));
   const shortReach = () => (St.snap && St.snap.passShort) || 3;
+  const shortReachV = () => (St.snap && St.snap.passShortV) || 2;
   const longReach = () => (St.snap && St.snap.passLong) || 6;
+  const passOk = (a, b) => Math.abs(a.col - b.col) <= shortReach() && Math.abs(a.row - b.row) <= shortReachV();
   const shootRow = (team) => (team === 0 ? 0 : (St.snap.rows - 1));
   const canShoot = (p) => p.pos !== 'GK' && (p.team === 0 ? p.row <= 1 : p.row >= St.snap.rows - 2);
   const oppKeeperOut = () => !!(St.snap && St.snap.keeperOut && St.snap.keeperOut[1 - St.you]);
@@ -17,12 +19,12 @@
   function shootPct(p) {
     const rowOff = Math.abs(p.row - shootRow(p.team));
     const edge = (p.col === 0 || p.col === St.snap.cols - 1) ? 1 : 0;
-    const pen = 0.12 * rowOff + 0.18 * edge;
-    const pOpen = clamp(0.55 + (p.sho - 72) * 0.018 - pen, 0.30, 0.97);
-    const pCov = clamp((p.sho - 72) * 0.012 - pen * 0.5, 0, 0.42);
+    const pen = 0.08 * rowOff + 0.12 * edge;
+    const pOpen = clamp(0.72 + (p.sho - 72) * 0.013 - pen, 0.50, 0.98);
+    const pCov = clamp(0.10 + (p.sho - 72) * 0.013 - pen * 0.4, 0.05, 0.50);
     return Math.round(100 * (0.5 * pOpen + 0.5 * pCov));
   }
-  const longPct = (pas) => Math.round(100 * clamp(0.45 + (pas - 72) * 0.022, 0.25, 0.95));
+  const longPct = (pas) => Math.round(100 * clamp(0.66 + (pas - 72) * 0.015, 0.60, 0.96));
 
   const St = { ws: null, token: null, profile: null, you: 0, snap: null, orders: {}, sel: null, action: null, submitted: false, decTimer: null, inited: false, roomCode: null, inMatch: false, reco: 0 };
   const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -65,8 +67,16 @@
   }
   const sendWs = (o) => { if (St.ws && St.ws.readyState === 1) St.ws.send(JSON.stringify(o)); };
   function onMsg(m) { try { dispatch(m); } catch (e) { console.error('onMsg', m && m.t, e); } }
+  function showUpdateBanner() {
+    if (document.getElementById('update-bar')) return;
+    const bar = document.createElement('div'); bar.id = 'update-bar';
+    bar.innerHTML = 'New version available <button id="update-go">Reload</button>';
+    document.body.appendChild(bar);
+    document.getElementById('update-go').onclick = () => location.reload();
+  }
   function dispatch(m) {
     switch (m.t) {
+      case 'sver': if (m.v && m.v !== VERSION) showUpdateBanner(); break;
       case 'token': St.token = m.token; lsSet('turf_token', m.token); St.profile = m.profile; St.reco = 0; goHome(); break;
       case 'profile': St.profile = m.profile; if (!St.token) St.token = m.profile.token; lsSet('turf_token', St.token); St.reco = 0; goHome(); break;
       case 'roomCreated': St.roomCode = m.code; $('lobby-code').textContent = m.code; $('lobby-box').classList.remove('hidden'); break;
@@ -194,15 +204,15 @@
 
   // ---- rules / tutorial -----------------------------------------------------
   const TUT = [
-    ['The pitch', '<b>3-a-side</b> on a 6x8 grid. Goals sit just outside each end; a line marks each keeper\'s zone.'],
+    ['The pitch', '<b>3-a-side</b> on a 6x8 grid. Goals sit just outside each end; a line marks each keeper\'s zone. <b>First goal wins.</b>'],
     ['Move at once', 'Order your players, then hit <b>Submit Moves</b>. Both teams resolve at the <b>same time</b> — read your opponent.'],
     ['Moving', 'Tap a player, then a square. <b>2 squares</b> with the ball, <b>3</b> without. You can\'t move onto your own players.'],
-    ['On the ball', '<b>Run with ball</b>, <b>short pass</b> (cut only if a defender is in the lane), or a <b>long ball</b> over the top. Pass back to your keeper with a short or long pass to reset.'],
+    ['On the ball', '<b>Run with ball</b>, <b>short pass</b> (cut only if a defender is in the lane), or a <b>long ball</b> over the top — one per <b>team</b>, then a 3-turn cooldown. Pass back to your keeper to reset.'],
     ['Two stats', 'Only <b>SCR</b> (scoring) and <b>PAS</b> (long-ball control) matter, each rated <b>BAD / GOOD / SUPERB</b>. Higher SCR scores more, even past a correct keeper. Higher PAS means long balls land at your man instead of bouncing loose.'],
-    ['Loose balls', 'A <b>loose ball</b> belongs to no one and pulses on the pitch. Whoever is closest next turn wins it.'],
+    ['Loose balls', 'A <b>loose ball</b> belongs to no one and pulses on the pitch. Whoever <b>ends closest</b> the next turn collects it where they stand — so chase it down.'],
     ['Winning it back', 'No tackle button — <b>move a defender onto the ball carrier\'s square</b> to win it. Stay goal-side to block runs.'],
     ['Shooting', 'From the last two rows, tap <b>Shoot</b> for a 1 v 1. You pick a corner, the keeper guesses a dive — your live <b>% to score</b> is shown.'],
-    ['Win & build', 'Beat a bot to win a <b>player pack</b>. Hard bots drop better players. Set your three in Squad.'],
+    ['Win & build', 'Score first to win the match and a <b>player pack</b>. Hard bots drop better players. Set your three in Squad.'],
   ];
   let tutIdx = 0;
   function maybeFirstTutorial() { if (!lsGet('turf_tut_seen')) startTutorial(true); }
@@ -215,7 +225,7 @@
   // ---- match ----------------------------------------------------------------
   function startMatch(m) {
     St.you = m.you; St.snap = m.snapshot; St.orders = {}; St.sel = null; St.action = null; St.submitted = false;
-    St.vsBot = m.vsBot; St.difficulty = m.difficulty; St.goalTarget = m.goalTarget || 3; St.inMatch = true; St._sy = undefined; St._so = undefined;
+    St.vsBot = m.vsBot; St.difficulty = m.difficulty; St.goalTarget = m.goalTarget || 1; St.inMatch = true; St._sy = undefined; St._so = undefined;
     hideAllOverlays(); show('screen-match');
     Pitch.init($('pitch'), St.you); St.inited = true;
     Pitch.setSnapshot(m.snapshot, false);
@@ -223,7 +233,7 @@
     $('hud-you').className = 'badge' + (youBlue ? '' : ' red');
     $('hud-opp').className = 'badge' + (youBlue ? ' red' : '');
     $('hud-opp').textContent = m.vsBot ? (m.difficulty === 'hard' ? 'HARD BOT' : 'EASY BOT') : 'RIVAL';
-    $('btn-submit').style.display = ''; $('btn-submit').textContent = 'Submit Moves!'; $('btn-submit').classList.remove('waiting');
+    $('btn-submit').textContent = 'Submit Moves!'; $('btn-submit').classList.remove('waiting');
     updateHud(); matchMsg('');
   }
   $('btn-quit').onclick = () => { sendWs({ t: 'leave' }); goHome(); };
@@ -234,6 +244,12 @@
     const sy = s.score[St.you], so = s.score[1 - St.you];
     if (St._sy !== undefined && (sy !== St._sy || so !== St._so)) { const el = document.querySelector('.mhud-score'); if (el) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); } }
     St._sy = sy; St._so = so;
+    const ls = document.getElementById('long-status');
+    if (ls) {
+      const cd = s.longCd ? (s.longCd[St.you] || 0) : 0;
+      ls.textContent = cd > 0 ? `Long ball: cooldown ${cd}` : 'Long ball: ready';
+      ls.className = 'long-status' + (cd > 0 ? ' cooling' : ' ready');
+    }
   }
 
   function onTurn(m) {
@@ -241,7 +257,7 @@
     ov('ov-shoot', false);
     Pitch.setSnapshot(m.snapshot, false); Pitch.setOverlay(null);
     updateHud();
-    $('btn-submit').style.display = ''; $('btn-submit').textContent = 'Submit Moves!'; $('btn-submit').classList.remove('waiting');
+    $('btn-submit').textContent = 'Submit Moves!'; $('btn-submit').classList.remove('waiting');
     matchMsg(''); hidePop();
   }
 
@@ -250,11 +266,9 @@
   function mateOccupied(p, abs) { return myPlayers().some(q => q.id !== p.id && q.col === abs.col && q.row === abs.row); }
 
   function actionsFor(p) {
-    const longOk = St.snap.longCd ? St.snap.longCd[St.you] === 0 : true;
     if (St.snap.possession === (1 - St.you)) return [['Move', 'move']];
     if (isCarrier(p)) {
-      const list = [['Run with ball', 'move'], ['Short pass', 'pass']];
-      if (longOk) list.push(['Long pass', 'longpass']);
+      const list = [['Run with ball', 'move'], ['Short pass', 'pass'], ['Long pass', 'longpass']];
       if (canShoot(p)) list.unshift(['Shoot', 'shoot']);
       if (p.pos !== 'GK' && oppKeeperOut()) list.push(['Chip', 'chip']);
       return list;
@@ -271,19 +285,35 @@
     let html = `<div class="ab-head"><div class="ab-name">${last} <span class="ab-pos">${p.pos}</span> ${rarityChip(p.ovr)}</div>${statStack(p)}</div>`;
     if (mine && !St.submitted) {
       const acts = actionsFor(p);
+      const longCd = St.snap.longCd ? (St.snap.longCd[St.you] || 0) : 0;
       html += '<div class="ab-row">';
-      for (const [label, kind] of acts) html += `<button data-k="${kind}"${St.action === kind ? ' class="act"' : ''}>${label}</button>`;
-      html += '<button data-k="__cancel">Cancel</button></div>';
+      for (const [label, kind] of acts) {
+        if (kind === 'longpass' && longCd > 0) { html += `<button class="off" disabled>Long pass · ${longCd}</button>`; continue; }
+        html += `<button data-k="${kind}"${St.action === kind ? ' class="act"' : ''}>${label}</button>`;
+      }
+      const hasOrder = !!St.orders[p.id];
+      html += `<button data-k="__cancel"${hasOrder ? ' class="warn"' : ''}>${hasOrder ? 'Clear order' : 'Cancel'}</button></div>`;
       if (acts.some(a => a[1] === 'shoot')) html += `<div class="ab-hint"><b>${shootPct(p)}%</b> to score from here. Shoot opens a 1 v 1.</div>`;
-      else if (acts.some(a => a[1] === 'longpass')) html += `<div class="ab-hint">Long ball: <b>${longPct(p.pas)}%</b> to land at your man (PAS).</div>`;
+      else if (isCarrier(p)) {
+        const cd = St.snap.longCooldown || 3;
+        html += longCd > 0
+          ? `<div class="ab-hint">Long ball is on cooldown — your <b>team</b> can use it again in <b>${longCd}</b> turn${longCd > 1 ? 's' : ''}.</div>`
+          : `<div class="ab-hint">Long ball ≈ <b>${longPct(p.pas)}%</b> to land at your man. One per <b>team</b>, then a ${cd}-turn cooldown.</div>`;
+      }
       else if (St.snap.possession === (1 - St.you)) html += '<div class="ab-hint">Move onto the carrier\'s square to win the ball back.</div>';
     }
     pop.innerHTML = html; pop.style.display = 'block';
     const c = Pitch.screenOf(p.col, p.row), cell = Pitch.cell;
-    pop.style.left = c.x + 'px';
+    const w = pop.offsetWidth, wrapW = (pop.offsetParent ? pop.offsetParent.clientWidth : w);
+    let left = Math.max(w / 2 + 6, Math.min(c.x, wrapW - w / 2 - 6));   // keep popover fully on screen
+    pop.style.left = left + 'px';
     const h = pop.offsetHeight; let top = c.y - cell * 0.5 - h - 6; if (top < 2) top = c.y + cell * 0.5 + 6;
     pop.style.top = top + 'px';
-    pop.querySelectorAll('button').forEach(b => b.onclick = (e) => { e.stopPropagation(); const k = b.dataset.k; if (k === '__cancel') clearSel(); else armAction(k); });
+    pop.querySelectorAll('button').forEach(b => b.onclick = (e) => {
+      e.stopPropagation(); const k = b.dataset.k; if (!k) return;
+      if (k === '__cancel') { if (St.orders[p.id]) delete St.orders[p.id]; clearSel(); }
+      else armAction(k);
+    });
   }
 
   function armAction(kind) {
@@ -292,13 +322,14 @@
     if (kind === 'chip') { St.orders[p.id] = { type: 'chip' }; clearSel(); return; }
     St.action = kind;
     if (kind === 'longpass') matchMsg(`Long ball ≈ ${longPct(p.pas)}% to control`);
-    const range = kind === 'pass' ? shortReach() : kind === 'longpass' ? longReach() : moveAllow(p);
+    const inReach = (cell) => kind === 'pass' ? passOk(p, cell) : kind === 'longpass' ? cheb(p, cell) <= longReach() : cheb(p, cell) <= moveAllow(p);
     const reach = [];
     for (let c = 0; c < St.snap.cols; c++) for (let r = 0; r < St.snap.rows; r++) {
+      const cell = { col: c, row: r };
       if (c === p.col && r === p.row) continue;
-      if (cheb(p, { col: c, row: r }) > range) continue;
-      if (kind === 'move' && mateOccupied(p, { col: c, row: r })) continue;  // can't run onto your own players
-      reach.push({ col: c, row: r });
+      if (!inReach(cell)) continue;
+      if (kind === 'move' && mateOccupied(p, cell)) continue;  // can't run onto your own players
+      reach.push(cell);
     }
     hidePop(); drawOrders(reach, kind, { col: p.col, row: p.row });
   }
@@ -321,8 +352,8 @@
     if (St.sel && St.action) {
       const p = St.snap.players.find(x => x.id === St.sel);
       if (St.action === 'pass' || St.action === 'longpass') {
-        const range = St.action === 'pass' ? shortReach() : longReach();
-        if (cheb(p, abs) <= range && !(abs.col === p.col && abs.row === p.row)) { St.orders[p.id] = { type: St.action, to: { col: abs.col, row: abs.row } }; clearSel(); return; }
+        const ok = St.action === 'pass' ? passOk(p, abs) : (cheb(p, abs) <= longReach());
+        if (ok && !(abs.col === p.col && abs.row === p.row)) { St.orders[p.id] = { type: St.action, to: { col: abs.col, row: abs.row } }; clearSel(); return; }
       } else if (cheb(p, abs) <= moveAllow(p) && !(abs.col === p.col && abs.row === p.row) && !mateOccupied(p, abs)) { St.orders[p.id] = { type: 'move', to: abs }; clearSel(); return; }
       if (anyP) { selectPlayer(anyP, abs); return; }
       clearSel(); return;
@@ -342,7 +373,7 @@
   // ---- resolve --------------------------------------------------------------
   function onResolve(m) {
     St.snap = m.snapshot;
-    $('btn-submit').style.display = 'none';
+    $('btn-submit').textContent = 'Resolving…'; $('btn-submit').classList.add('waiting');
     const shotEv = m.events.find(ev => ev.t === 'shootResult');
     const lp = m.events.find(ev => ev.t === 'longpass');
     const sp = m.events.find(ev => ev.t === 'pass');

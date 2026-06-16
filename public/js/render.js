@@ -172,7 +172,7 @@
     const o = overlay;
     if (o.reach) for (const sq of o.reach) {
       const p = px(sq.col, sq.row);
-      const rgb = o.kind === 'pass' ? '24,28,34' : o.kind === 'longpass' ? '184,134,11' : '47,107,255';
+      const rgb = o.kind === 'pass' ? '70,150,255' : o.kind === 'longpass' ? '184,134,11' : '47,107,255';
       ctx.fillStyle = `rgba(${rgb},0.20)`; ctx.fillRect(p.x + 1, p.y + 1, cell - 2, cell - 2);
     }
     if (o.orders) for (const ord of o.orders) {
