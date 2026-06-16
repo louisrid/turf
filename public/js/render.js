@@ -199,7 +199,7 @@
     if (p.hasBall) { ctx.fillStyle = 'rgba(255,206,0,0.30)'; ctx.beginPath(); ctx.ellipse(x + cell / 2, y + cell * 0.82, cell * 0.34, cell * 0.16, 0, 0, Math.PI * 2); ctx.fill(); }
     if (p.adv) { ctx.strokeStyle = '#19a64a'; ctx.lineWidth = 2; ctx.strokeRect(x + 3, y + 3, cell - 6, cell - 6); }
     const team = p.team === 0 ? 'blue' : 'red';
-    S.drawGrid(ctx, ox, oy, U, { team, skin: p.look.skin, hair: p.look.hair, hairColor: p.look.hairColor, role: p.pos === 'GK' ? 'gk' : 'out' });
+    S.drawGrid(ctx, ox, oy, U, { team, skin: p.look.skin, hair: p.look.hair, hairColor: p.look.hairColor, role: p.keeper ? 'gk' : 'out' });
     ctx.save(); ctx.shadowColor = 'rgba(255,255,255,0.9)'; ctx.shadowBlur = 3; ctx.fillStyle = '#14161b';
     ctx.font = `600 ${Math.round(cell * 0.15)}px "Space Grotesk", ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'center';
     ctx.fillText(p.name.split(' ').slice(-1)[0], x + cell / 2, y + cell - 3); ctx.restore(); ctx.textAlign = 'left';

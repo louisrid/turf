@@ -265,6 +265,17 @@ button{font-family:var(--body);cursor:pointer;border:none;color:inherit;backgrou
 .badge{transition:background .2s}
 @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
 
+
+/* freddie-mode toggle */
+.toggle-row{display:flex;align-items:center;gap:12px;cursor:pointer;margin:2px 0 14px;user-select:none}
+.toggle-row input{position:absolute;opacity:0;width:0;height:0}
+.tg-track{flex:0 0 auto;width:46px;height:28px;border-radius:999px;background:var(--line);position:relative;transition:background .18s}
+.tg-knob{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:transform .18s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.toggle-row input:checked + .tg-track{background:var(--blue)}
+.toggle-row input:checked + .tg-track .tg-knob{transform:translateX(18px)}
+.tg-txt{display:flex;flex-direction:column;line-height:1.15;font-weight:800;color:var(--ink);text-align:left}
+.tg-sub{font-size:11px;font-weight:600;color:var(--sub)}
+
 /* squad-saved toast */
 .toast{position:fixed;left:50%;bottom:calc(26px + env(safe-area-inset-bottom));transform:translate(-50%,14px);
   background:#10b75c;color:#fff;font-weight:800;font-size:14px;padding:12px 22px;border-radius:999px;z-index:9998;

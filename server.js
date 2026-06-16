@@ -10,7 +10,7 @@ import { makePack, squadAverage, makeSquadFor } from './lib/players.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
-const SERVER_VERSION = 'v0.5.8';
+const SERVER_VERSION = 'v0.6.1';
 const PLANNING_MS = Number(process.env.PLANNING_MS || 45000);
 const DECISION_MS = Number(process.env.DECISION_MS || 20000);
 const GOAL_TARGET = Number(process.env.GOAL_TARGET || 1);
@@ -52,10 +52,9 @@ const broadcast = (room, obj) => room.players.forEach(p => send(p.ws, obj));
 function clearTimers(room) { if (room.timer) { clearTimeout(room.timer); room.timer = null; } }
 
 function roomCode() {
-  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let c; do { c = Array.from({ length: 4 }, () => A[Math.floor(Math.random() * A.length)]).join(''); }
+  let c; do { c = String(Math.floor(Math.random() * 100)).padStart(2, '0'); }
   while (rooms.has(c));
-  return c;
+  return c;                                   // two-digit numeric room codes (00-99)
 }
 const validSquad = (p) => p && Array.isArray(p.squad) && p.squad.length === 3;
 
@@ -66,7 +65,7 @@ function startMatch(room) {
   let squadB;
   if (room.bot) squadB = room.bot.squad;
   else { const b = room.players[1]; squadB = validSquad(b.profile) ? b.profile.squad : makeSquadFor('easy'); }
-  room.match = engine.createMatch(squadA, squadB);
+  room.match = engine.createMatch(squadA, squadB, !!room.freddie);
   room.match.easyBotTeam = (room.bot && room.bot.diff === 'easy') ? room.bot.team : -1;
   // who starts with the ball: easy -> human always; hard -> bot 60% of the time; PvP -> coin flip
   let startTeam = 0;
@@ -111,9 +110,10 @@ function doResolve(room) {
     const snap = engine.snapshot(m);
     const sh = snap.players.find(p => p.id === pending.shooterId);
     room.shoot = [null, null];
+    if (pending.open) room.shoot[1] = 'C';   // role-indexed [shooter, keeper]: no keeper to pick on an open goal
     room.players.forEach(p => {
       const role = p.team === sh.team ? 'shooter' : 'gk';
-      send(p.ws, { t: 'shoot', events, snapshot: snap, role,
+      send(p.ws, { t: 'shoot', events, snapshot: snap, role, open: !!pending.open,
                    shooterId: pending.shooterId, gkId: pending.gkId,
                    deadline: room.bot ? Date.now() + room.decMs : null });
     });
@@ -123,6 +123,7 @@ function doResolve(room) {
       catch (e) { console.error('botShoot', e); room.shoot[room.bot.team === sh.team ? 0 : 1] = Math.random() < 0.5 ? 'L' : 'R'; }
       if (room.shoot[0] && room.shoot[1]) return finishShoot(room);
     }
+    if (room.shoot[0] && room.shoot[1]) return finishShoot(room);   // open goal may already be ready
     if (room.bot) room.timer = setTimeout(() => finishShoot(room), room.decMs + 300);   // safety only
     return;
   }
@@ -336,7 +337,7 @@ wss.on('connection', (ws) => {
           const diff = msg.difficulty === 'hard' ? 'hard' : 'easy';
           const code = roomCode();
           const room = { code, players: [{ ws, profile: ws.profile, team: 0 }],
-                         bot: { team: 1, diff, squad: makeSquadFor(diff) }, match: null, timer: null };
+                         bot: { team: 1, diff, squad: makeSquadFor(diff) }, match: null, timer: null, freddie: !!msg.freddie };
           rooms.set(code, room); ws.roomCode = code;
           startMatch(room);
           break;
@@ -344,7 +345,7 @@ wss.on('connection', (ws) => {
         case 'createRoom': {
           if (!ws.profile) return send(ws, { t: 'error', msg: 'Log in first.' });
           const code = roomCode();
-          rooms.set(code, { code, players: [{ ws, profile: ws.profile, team: 0 }], match: null, timer: null });
+          rooms.set(code, { code, players: [{ ws, profile: ws.profile, team: 0 }], match: null, timer: null, freddie: !!msg.freddie });
           ws.roomCode = code;
           send(ws, { t: 'roomCreated', code });
           break;
