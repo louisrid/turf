@@ -20,6 +20,7 @@
       <input id="login-code" inputmode="numeric" maxlength="4" placeholder="123" />
       <button id="btn-login">Go</button>
     </div>
+    <button id="btn-tut-login" class="ghost">How to play</button>
     <div id="login-err" class="err"></div>
   </section>
 
@@ -29,17 +30,30 @@
     <div class="code-card">
       <div class="label">Your code</div>
       <div id="home-token" class="token">—</div>
-      <div class="sub">Remember this. It is your login on any device.</div>
+      <div class="sub">Your login on any device. Keep it.</div>
     </div>
-    <div id="home-record" class="record"></div>
-    <div id="home-squad" class="squad-strip"></div>
-    <button id="btn-edit" class="ghost">Edit squad</button>
-    <div class="hr"></div>
-    <button id="btn-create" class="primary">Create room</button>
-    <div class="or">play a friend</div>
+
+    <div class="section-label">Play</div>
+    <div class="play-grid">
+      <button id="btn-easy" class="primary play">Vs Easy bot</button>
+      <button id="btn-hard" class="primary play red">Vs Hard bot</button>
+    </div>
+    <button id="btn-create" class="ghost">Play a friend (create room)</button>
     <div class="row">
-      <input id="join-code" maxlength="4" placeholder="CODE" />
+      <input id="join-code" maxlength="4" placeholder="FRIEND CODE" />
       <button id="btn-join">Join</button>
+    </div>
+
+    <div class="section-label">Your record</div>
+    <div id="home-record" class="record-grid"></div>
+
+    <div class="section-label">Squad <button id="btn-edit" class="link">edit</button></div>
+    <div id="home-squad" class="squad-strip"></div>
+
+    <div class="hr"></div>
+    <div class="play-grid">
+      <button id="btn-collection" class="ghost">Collection</button>
+      <button id="btn-tut" class="ghost">How to play</button>
     </div>
     <div id="home-err" class="err"></div>
   </section>
@@ -47,13 +61,25 @@
   <!-- SQUAD -->
   <section id="screen-squad" class="screen">
     <div class="head-row"><button id="sq-back" class="back">‹</button><h2>Your squad</h2></div>
-    <p class="hint">Pick 5: one keeper and four outfielders. Win matches to unlock better players.</p>
+    <p class="hint">Pick 3: one keeper and two outfielders.</p>
     <div id="sq-active" class="sq-grid"></div>
     <div class="hr"></div>
     <h3>Owned players</h3>
     <div id="sq-pool" class="sq-pool"></div>
     <div id="sq-err" class="err"></div>
     <button id="sq-save" class="primary">Save squad</button>
+  </section>
+
+  <!-- COLLECTION -->
+  <section id="screen-collection" class="screen">
+    <div class="head-row"><button id="col-back" class="back">‹</button><h2>Collection</h2></div>
+    <div id="col-count" class="hint"></div>
+    <div class="col-sort">
+      <button class="chip on" data-sort="ovr">Rating</button>
+      <button class="chip" data-sort="pos">Position</button>
+      <button class="chip" data-sort="new">Newest</button>
+    </div>
+    <div id="col-grid" class="col-grid"></div>
   </section>
 
   <!-- LOBBY -->
@@ -115,6 +141,8 @@
       <div class="goal-frame">
         <div id="goal-zones" class="goal-zones"></div>
         <canvas id="shoot-gk" width="64" height="64" class="gk-mini"></canvas>
+        <div id="shoot-ball" class="shoot-ball"></div>
+        <div id="shoot-result" class="shoot-result"></div>
       </div>
       <div id="shoot-prompt" class="ov-prompt"></div>
       <div id="shoot-wait" class="ov-wait"></div>
@@ -126,9 +154,24 @@
     <div class="ov-card">
       <div id="end-title" class="ov-title big">—</div>
       <div id="end-score" class="end-score"></div>
-      <div id="end-reward" class="reward"></div>
+      <div id="end-pack-label" class="pack-label"></div>
+      <div id="end-pack" class="pack-cards"></div>
       <button id="end-rematch" class="primary">Rematch</button>
       <button id="end-home" class="ghost">Back to home</button>
+    </div>
+  </div>
+
+  <!-- TUTORIAL OVERLAY -->
+  <div id="ov-tut" class="overlay">
+    <div class="ov-card tut">
+      <div id="tut-step" class="tut-step"></div>
+      <div id="tut-title" class="ov-title"></div>
+      <div id="tut-body" class="tut-body"></div>
+      <div class="tut-nav">
+        <button id="tut-back" class="ghost">Back</button>
+        <button id="tut-next" class="primary">Next</button>
+      </div>
+      <button id="tut-skip" class="link">Skip</button>
     </div>
   </div>
 

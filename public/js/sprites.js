@@ -2,15 +2,18 @@
    browser and in a node preview. Exposes globalThis.Sprites. */
 (function () {
   const SKIN = {
+    pale:  ['#f6d9bf', '#e0bd9a'],
     light: ['#f1c9a5', '#d8a87f'],
     mid:   ['#d8a878', '#b9874f'],
+    olive: ['#c9a26a', '#a47c44'],
     tan:   ['#c08a52', '#9c6a36'],
     brown: ['#9c6a3c', '#7a4f28'],
     dark:  ['#6e4a2c', '#523418'],
+    deep:  ['#553318', '#3c240f'],
   };
   const HAIR = {
-    black: '#26262b', brown: '#4a3320', blonde: '#d9b35f',
-    ginger: '#b5572a', grey: '#b9bcc4',
+    black: '#26262b', brown: '#4a3320', auburn: '#7a3b1e', blonde: '#d9b35f',
+    ginger: '#b5572a', grey: '#b9bcc4', platinum: '#e9e6da',
   };
   const KIT = {
     red:  { main: '#d11f2d', dark: '#9c1622', trim: '#f4f4f4', shorts: '#b11622', socks: '#d11f2d' },
@@ -57,6 +60,19 @@
     } else if (style === 'curly') {
       rect(ctx, ox, oy, U, 4, 0, 8, 3, hc);
       rect(ctx, ox, oy, U, 3, 2, 2, 3, hc); rect(ctx, ox, oy, U, 11, 2, 2, 3, hc);
+    } else if (style === 'cornrows') {
+      rect(ctx, ox, oy, U, 4, 1, 8, 2, hc);
+      for (let x = 5; x <= 10; x += 2) rect(ctx, ox, oy, U, x, 1, 1, 3, hc);
+      if (back) rect(ctx, ox, oy, U, 5, 2, 6, 3, hc);
+    } else if (style === 'spiky') {
+      rect(ctx, ox, oy, U, 4, 1, 8, 2, hc);
+      for (let x = 5; x <= 10; x += 2) rect(ctx, ox, oy, U, x, -1, 1, 2, hc);
+    } else if (style === 'fade') {
+      rect(ctx, ox, oy, U, 5, 0, 6, 3, hc);
+    } else if (style === 'manbun') {
+      rect(ctx, ox, oy, U, 5, 1, 6, 2, hc);
+      rect(ctx, ox, oy, U, 7, -1, 2, 2, hc); // bun on top
+      if (back) { rect(ctx, ox, oy, U, 5, 2, 6, 3, hc); rect(ctx, ox, oy, U, 7, 0, 2, 2, hc); }
     } else if (style === 'mohawk') {
       rect(ctx, ox, oy, U, 7, -1, 2, 4, hc);
     } else if (style === 'long') {
@@ -68,8 +84,10 @@
       rect(ctx, ox, oy, U, 4, 0, 8, 3, hc);
       rect(ctx, ox, oy, U, 4, 2, 1, 2, hc); rect(ctx, ox, oy, U, 11, 2, 1, 2, hc);
     }
-    if (style === 'ponytail' && back) rect(ctx, ox, oy, U, 7, 3, 2, 5, hc);
-    if (style === 'ponytail' && !back) { rect(ctx, ox, oy, U, 4, 0, 8, 3, hc); }
+    if (style === 'ponytail') {
+      rect(ctx, ox, oy, U, 4, 0, 8, 3, hc);
+      if (back) rect(ctx, ox, oy, U, 7, 3, 2, 5, hc);
+    }
   }
 
   // Detailed figure (used in the 1v1). box ~16 wide x 22 tall pixels.
@@ -118,8 +136,12 @@
     } else {
       rect(ctx, ox, oy, U, 5, 3, 6, 5, sk);
       rect(ctx, ox, oy, U, 5, 7, 6, 1, skD);      // jaw shade
+      if (o.beard) {                               // beard along the jaw + chin
+        rect(ctx, ox, oy, U, 5, 6, 6, 2, hc);
+        rect(ctx, ox, oy, U, 5, 5, 1, 2, hc); rect(ctx, ox, oy, U, 10, 5, 1, 2, hc);
+        rect(ctx, ox, oy, U, 6, 6, 4, 1, sk);      // mouth gap
+      }
       rect(ctx, ox, oy, U, 6, 5, 1, 1, EYE); rect(ctx, ox, oy, U, 9, 5, 1, 1, EYE);
-      rect(ctx, ox, oy, U, 6, 5, 1, 1, '#2a2a2a'); // tiny pupil hint via overlay below
       ctx.fillStyle = '#1c1c1c';
       ctx.fillRect(Math.round(ox + 6.3 * U), Math.round(oy + 5 * U), Math.max(1, Math.round(0.5 * U)), Math.max(1, Math.round(U)));
       ctx.fillRect(Math.round(ox + 9.0 * U), Math.round(oy + 5 * U), Math.max(1, Math.round(0.5 * U)), Math.max(1, Math.round(U)));
@@ -152,6 +174,9 @@
 
   globalThis.Sprites = {
     drawFigure, drawGrid, KIT, GK_KIT, SKIN, HAIR,
+    SKINS: Object.keys(SKIN),
+    HAIRCOLORS: Object.keys(HAIR),
+    HAIRSTYLES: ['short', 'buzz', 'fade', 'spiky', 'curly', 'afro', 'cornrows', 'manbun', 'ponytail', 'long', 'mohawk', 'bald'],
     FIG_W: 16, FIG_H: 22, GRID_W: 12, GRID_H: 14,
   };
 })();

@@ -3,10 +3,14 @@
   const $ = (id) => document.getElementById(id);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const cheb = (a, b) => Math.max(Math.abs(a.col - b.col), Math.abs(a.row - b.row));
-  const moveRange   = (p) => clamp(1 + Math.floor((p - 50) / 14), 1, 4);
-  const passRange   = (p) => clamp(2 + Math.floor((p - 50) / 12), 2, 6);
-  const tackleRange = (p) => clamp(1 + Math.floor((p - 55) / 15), 1, 3);
-  const shootRange  = (p) => clamp(2 + Math.floor((p - 60) / 12), 2, 5);
+  const isCarrier = (p) => St.snap && St.snap.ball.carrier === p.id;
+  const moveAllow = (p) => (p.pos === 'GK' ? 1 : (isCarrier(p) ? 1 : 2)); // carry 1, otherwise 2
+  const shortReach = () => (St.snap && St.snap.passShort) || 3;
+  const longReach = () => (St.snap && St.snap.passLong) || 6;
+  const shootRow = (team) => (team === 0 ? 0 : (St.snap.rows - 1));
+  const canShoot = (p) => p.pos !== 'GK' && p.row === shootRow(p.team);
+  const oppKeeperOut = () => !!(St.snap && St.snap.keeperOut && St.snap.keeperOut[1 - St.you]);
+  const theCarrier = () => St.snap && St.snap.ball.carrier ? St.snap.players.find(p => p.id === St.snap.ball.carrier) : null;
 
   const St = {
     ws: null, token: null, profile: null, you: 0, snap: null,
@@ -75,16 +79,23 @@
   function goHome() {
     $('home-token').textContent = St.token;
     const p = St.profile;
-    $('home-record').innerHTML = `<span>Wins <b>${p.wins || 0}</b></span><span>Losses <b>${p.losses || 0}</b></span><span>Players <b>${(p.squad || []).length + (p.collection || []).length}</b></span>`;
+    const wins = p.wins || 0, losses = p.losses || 0, m = p.matches || (wins + losses);
+    const wr = m ? Math.round(wins / m * 100) : 0;
+    const stat = (v, k) => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div></div>`;
+    $('home-record').innerHTML =
+      stat(wins, 'Wins') + stat(losses, 'Losses') + stat(wr + '%', 'Win rate') +
+      stat(p.goalsFor || 0, 'Goals for') + stat(p.goalsAgainst || 0, 'Conceded') + stat(p.packs || 0, 'Packs');
     const strip = $('home-squad'); strip.innerHTML = '';
     (p.squad || []).forEach(pl => {
       const d = document.createElement('div'); d.className = 'mini';
       const c = mkCanvas(40, 56); paintFigure(c, pl, { team: 'blue' });
       d.appendChild(c);
-      const n = document.createElement('div'); n.className = 'nm'; n.textContent = pl.name.split(' ').slice(-1)[0];
-      d.appendChild(n); strip.appendChild(d);
+      d.insertAdjacentHTML('beforeend',
+        `<div class="ov">${pl.ovr}</div><div class="nm">${pl.name.split(' ').slice(-1)[0]}</div>`);
+      strip.appendChild(d);
     });
     show('screen-home');
+    maybeFirstTutorial();
   }
 
   $('btn-create').onclick = () => sendWs({ t: 'createRoom' });
@@ -92,6 +103,11 @@
     const code = $('join-code').value.trim().toUpperCase();
     if (code) sendWs({ t: 'joinRoom', code });
   };
+  $('btn-easy').onclick = () => sendWs({ t: 'soloMatch', difficulty: 'easy' });
+  $('btn-hard').onclick = () => sendWs({ t: 'soloMatch', difficulty: 'hard' });
+  $('btn-collection').onclick = openCollection;
+  $('btn-tut').onclick = () => startTutorial(false);
+  $('btn-tut-login').onclick = () => startTutorial(false);
   $('lobby-cancel').onclick = () => { sendWs({ t: 'leave' }); goHome(); };
 
   // ---- squad editor ---------------------------------------------------------
@@ -124,12 +140,12 @@
       pool.appendChild(card);
     });
     const gkCount = editActive.map(id => owned.find(x => x.id === id)).filter(p => p && p.pos === 'GK').length;
-    $('sq-err').textContent = editActive.length !== 5 ? `Pick ${5 - editActive.length} more` :
+    $('sq-err').textContent = editActive.length !== 3 ? `Pick ${3 - editActive.length} more` :
       gkCount !== 1 ? 'Squad needs exactly one keeper' : '';
   }
   function toggleSquad(p) {
     if (editActive.includes(p.id)) editActive = editActive.filter(x => x !== p.id);
-    else if (editActive.length < 5) editActive.push(p.id);
+    else if (editActive.length < 3) editActive.push(p.id);
     renderSquad();
   }
   function playerCard(p, mini) {
@@ -146,22 +162,87 @@
   $('sq-save').onclick = () => {
     const owned = allOwned();
     const gkCount = editActive.map(id => owned.find(x => x.id === id)).filter(p => p && p.pos === 'GK').length;
-    if (editActive.length !== 5 || gkCount !== 1) { renderSquad(); return; }
+    if (editActive.length !== 3 || gkCount !== 1) { renderSquad(); return; }
     const squad = editActive.map(id => owned.find(x => x.id === id));
     St.profile.squad = squad;
     sendWs({ t: 'saveSquad', token: St.token, squad });
   };
 
+  // ---- collection -----------------------------------------------------------
+  function rarity(ovr) { return ovr >= 92 ? 'icon' : ovr >= 89 ? 'gold' : ovr >= 86 ? 'silver' : 'bronze'; }
+  let colSort = 'ovr';
+  document.querySelectorAll('.col-sort .chip').forEach(c => {
+    c.onclick = () => {
+      document.querySelectorAll('.col-sort .chip').forEach(x => x.classList.remove('on'));
+      c.classList.add('on'); colSort = c.dataset.sort; renderCollection();
+    };
+  });
+  $('col-back').onclick = goHome;
+  function openCollection() { renderCollection(); show('screen-collection'); }
+  function renderCollection() {
+    const owned = allOwned();
+    $('col-count').textContent = `${owned.length} players owned`;
+    const posOrder = { GK: 0, DEF: 1, MID: 2, FWD: 3 };
+    const sorted = owned.slice();
+    if (colSort === 'ovr') sorted.sort((a, b) => b.ovr - a.ovr);
+    else if (colSort === 'pos') sorted.sort((a, b) => (posOrder[a.pos] - posOrder[b.pos]) || (b.ovr - a.ovr));
+    else sorted.reverse();
+    const grid = $('col-grid'); grid.innerHTML = '';
+    for (const p of sorted) {
+      const r = rarity(p.ovr);
+      const card = document.createElement('div'); card.className = 'pcard r-' + r;
+      const c = mkCanvas(52, 70); paintFigure(c, p, { team: 'blue' });
+      card.appendChild(c);
+      card.insertAdjacentHTML('beforeend',
+        `<div class="ovr">${p.ovr}</div><div class="pos">${p.pos}</div>` +
+        `<div class="nm">${p.name}</div>` +
+        `<div class="stats6"><span>PAC ${p.pac}</span><span>SHO ${p.sho}</span><span>PAS ${p.pas}</span>` +
+        `<span>DRI ${p.dri}</span><span>DEF ${p.def}</span><span>PHY ${p.phy}</span></div>` +
+        `<div class="rib">${r}</div>`);
+      grid.appendChild(card);
+    }
+  }
+
+  // ---- tutorial -------------------------------------------------------------
+  const TUT = [
+    ['The pitch', 'You play <b>3-a-side</b> (a keeper and two outfielders) on a 6x8 grid. The goals sit just <b>outside</b> the grid, two cells wide. A coloured line marks each keeper\'s zone.'],
+    ['Everyone moves at once', 'Each turn you order <b>every one of your players</b>, then hit Submit. Both teams\' orders resolve at the <b>same time</b> and you never see theirs first. The whole game is reading the opponent.'],
+    ['Moving', 'Tap a player, then tap a square. Off the ball you move up to <b>2 squares</b>, but only <b>1 while carrying</b>, so defenders can always close you down. Diagonals count.'],
+    ['On the ball', 'The carrier can <b>Dribble</b>, play a <b>Short pass</b> (reliable, but a defender in the lane cuts it), a <b>Long pass</b> (sails over the press but lands as a loose ball), or pass back <b>To keeper</b> to reset and switch play.'],
+    ['Off the ball', 'Your other outfielder decides the game: <b>come short</b> to give a safe pass, <b>drop deep</b> to drag a marker out, or <b>run long</b> in behind. Two defenders can\'t cover the ball, the short option and the run at once.'],
+    ['Defending', 'Pick your poison: <b>mark</b> a lane, <b>drop deep</b> and stay compact, <b>press</b> to win the ball (miss and you\'re out of the play), or <b>double up</b> one side when the carrier is cornered. Win the ball and you can\'t be tackled straight back.'],
+    ['Shooting', 'Shoot only from the row <b>right in front of the goal</b>. It\'s a bluff: you pick a corner, the keeper picks a dive. <b>SHO</b> is the only stat, it converts open chances, beats a keeper who guessed right, and lets you <b>chip</b> a keeper who has rushed out.'],
+    ['Win and collect', 'First to the goal target wins. Win a match for a <b>pack of players</b>, then pick your <b>keeper and two outfielders</b> in Squad. Play the bots solo, or share your code to play a friend.'],
+  ];
+  let tutIdx = 0, tutFirst = false;
+  function maybeFirstTutorial() {
+    try { if (!localStorage.getItem('turf_tut_seen')) startTutorial(true); } catch {}
+  }
+  function startTutorial(first) { tutFirst = first; tutIdx = 0; renderTut(); ov('ov-tut', true); }
+  function renderTut() {
+    const [title, body] = TUT[tutIdx];
+    $('tut-step').textContent = `Step ${tutIdx + 1} of ${TUT.length}`;
+    $('tut-title').textContent = title;
+    $('tut-body').innerHTML = body;
+    $('tut-back').style.visibility = tutIdx === 0 ? 'hidden' : 'visible';
+    $('tut-next').textContent = tutIdx === TUT.length - 1 ? 'Got it' : 'Next';
+  }
+  $('tut-next').onclick = () => { if (tutIdx < TUT.length - 1) { tutIdx++; renderTut(); } else closeTut(); };
+  $('tut-back').onclick = () => { if (tutIdx > 0) { tutIdx--; renderTut(); } };
+  $('tut-skip').onclick = closeTut;
+  function closeTut() { ov('ov-tut', false); try { localStorage.setItem('turf_tut_seen', '1'); } catch {} }
+
   // ---- match start ----------------------------------------------------------
   function startMatch(m) {
     St.you = m.you; St.snap = m.snapshot; St.orders = {}; St.sel = null; St.action = null;
+    St.vsBot = m.vsBot; St.difficulty = m.difficulty;
     show('screen-match');
-    if (!St.inited) { Pitch.init($('pitch'), St.you); St.inited = true; }
-    else { /* re-init team if rematch swapped */ Pitch.init($('pitch'), St.you); }
+    Pitch.init($('pitch'), St.you); St.inited = true;
     Pitch.setSnapshot(m.snapshot, false);
     const youBlue = St.you === 0;
     $('hud-you').className = 'badge' + (youBlue ? '' : ' red');
     $('hud-opp').className = 'badge' + (youBlue ? ' red' : '');
+    $('hud-opp').textContent = m.vsBot ? (m.difficulty === 'hard' ? 'HARD BOT' : 'EASY BOT') : 'OPP';
     ov('ov-end', false);
     updateHud();
     $('match-msg').textContent = '';
@@ -196,25 +277,23 @@
   function attacking() { return St.snap.possession === St.you || St.snap.possession === -1; }
 
   function actionsFor(p) {
-    const isCarrier = St.snap.ball.carrier === p.id;
     if (St.snap.possession === (1 - St.you)) { // defending
-      return p.pos === 'GK' ? [['Move', 'move']] : [['Move', 'move'], ['Tackle', 'tackle']];
+      const list = [['Move', 'move']];
+      const cr = theCarrier();
+      if (cr && p.pos !== 'GK' && cheb(p, cr) <= 3) list.push(['Press', 'winball']);
+      return list;
     }
-    if (isCarrier) {
-      const list = [['Dribble', 'move'], ['Pass', 'pass']];
-      const goalRow = p.team === 0 ? 0 : 7;
-      if (p.pos !== 'GK' && Math.abs(p.row - goalRow) <= shootRange(p.sho)) list.push(['Shoot', 'shoot']);
+    if (isCarrier(p)) {
+      if (p.pos === 'GK') return [['Dribble', 'move'], ['Short pass', 'pass'], ['Long pass', 'longpass']];
+      const list = [['Dribble', 'move'], ['Short pass', 'pass'], ['Long pass', 'longpass'], ['To keeper', 'backpass']];
+      if (canShoot(p)) list.unshift(['Shoot', 'shoot']);
+      if (oppKeeperOut()) list.push(['Chip', 'chip']);
       return list;
     }
     return [['Run', 'move']];
   }
 
-  function rangeFor(p, kind) {
-    if (kind === 'move') return moveRange(p.pac);
-    if (kind === 'pass') return passRange(p.pas);
-    if (kind === 'tackle') return tackleRange(p.def);
-    return 0;
-  }
+  function clearSel() { St.sel = null; St.action = null; St.reach = null; setActionBar(); drawOrders(); }
 
   function setActionBar() {
     const title = $('ab-title'), box = $('ab-buttons'); box.innerHTML = '';
@@ -235,10 +314,14 @@
 
   function armAction(kind) {
     const p = St.snap.players.find(x => x.id === St.sel);
-    if (kind === 'shoot') { St.orders[p.id] = { type: 'shoot' }; St.sel = null; St.action = null; setActionBar(); drawOrders(); return; }
+    if (kind === 'shoot') { St.orders[p.id] = { type: 'shoot' }; clearSel(); return; }
+    if (kind === 'chip') { St.orders[p.id] = { type: 'chip' }; clearSel(); return; }
+    if (kind === 'backpass') { St.orders[p.id] = { type: 'backpass' }; clearSel(); return; }
+    if (kind === 'winball') { St.orders[p.id] = { type: 'winball' }; clearSel(); return; }
     St.action = kind;
-    const range = rangeFor(p, kind);
+    const range = kind === 'pass' ? shortReach() : kind === 'longpass' ? longReach() : moveAllow(p);
     const reach = [];
+    // move = squares within allowance; pass/longpass = any square within range (can play into space)
     for (let c = 0; c < St.snap.cols; c++) for (let r = 0; r < St.snap.rows; r++) {
       if (c === p.col && r === p.row) continue;
       if (cheb(p, { col: c, row: r }) <= range) reach.push({ col: c, row: r });
@@ -251,28 +334,67 @@
   function drawOrders(reach, kind, sel) {
     const orders = Object.entries(St.orders).map(([id, o]) => {
       const p = St.snap.players.find(x => x.id === id);
-      const to = o.type === 'shoot' ? { col: p.col, row: (p.team === 0 ? 0 : 7) } : o.to;
-      const color = o.type === 'tackle' ? '#d11f2d' : o.type === 'pass' ? '#19a64a' : o.type === 'shoot' ? '#111' : '#1f4fd1';
+      let to = o.to;
+      if (o.type === 'shoot' || o.type === 'chip') to = { col: p.col, row: shootRow(p.team) };
+      if (o.type === 'backpass') { const gk = myPlayers().find(x => x.pos === 'GK'); to = gk ? { col: gk.col, row: gk.row } : { col: p.col, row: p.row }; }
+      const color = o.type === 'winball' ? '#d11f2d' : o.type === 'pass' ? '#19a64a'
+        : o.type === 'longpass' ? '#e08a00' : o.type === 'backpass' ? '#0aa3a3'
+        : (o.type === 'shoot' || o.type === 'chip') ? '#111' : '#1f4fd1';
       return { from: { col: p.col, row: p.row }, to, color };
     });
     Pitch.setOverlay({ reach, kind, orders, sel });
   }
+
+  function selectPlayer(pl, abs) { St.sel = pl.id; St.action = null; St.reach = null; setActionBar(); drawOrders(null, null, abs); }
 
   // pitch taps
   $('pitch').addEventListener('click', (e) => {
     if (St.phase !== 'PLANNING' || St.submitted) return;
     const abs = Pitch.cellAt(e.clientX, e.clientY); if (!abs) return;
     const mine = playerAt(abs);
-    if (mine) { St.sel = mine.id; St.action = null; St.reach = null; setActionBar(); drawOrders(null, null, abs); return; }
     if (St.sel && St.action) {
       const p = St.snap.players.find(x => x.id === St.sel);
-      if (cheb(p, abs) <= rangeFor(p, St.action) && !(abs.col === p.col && abs.row === p.row)) {
-        const type = St.action === 'tackle' ? 'tackle' : St.action === 'pass' ? 'pass' : 'move';
-        St.orders[p.id] = { type, to: abs };
-        St.sel = null; St.action = null; St.reach = null; setActionBar(); drawOrders();
+      if (St.action === 'pass' || St.action === 'longpass') {
+        const range = St.action === 'pass' ? shortReach() : longReach();
+        if (cheb(p, abs) <= range && !(abs.col === p.col && abs.row === p.row)) {
+          St.orders[p.id] = { type: St.action === 'longpass' ? 'longpass' : 'pass', to: { col: abs.col, row: abs.row } };
+          clearSel(); return;
+        }
+      } else { // move / dribble / run
+        if (cheb(p, abs) <= moveAllow(p) && !(abs.col === p.col && abs.row === p.row)) {
+          St.orders[p.id] = { type: 'move', to: abs };
+          clearSel(); return;
+        }
       }
+      if (mine) { selectPlayer(mine, abs); return; }
+      return;
     }
+    if (mine) { selectPlayer(mine, abs); return; }
   });
+
+  // long-press (mobile) / right-click (desktop) the ball carrier -> pass mode
+  function armPassOnCarrier(clientX, clientY) {
+    if (St.phase !== 'PLANNING' || St.submitted) return false;
+    const abs = Pitch.cellAt(clientX, clientY); if (!abs) return false;
+    const p = playerAt(abs);
+    if (p && isCarrier(p) && St.snap.possession === St.you) {
+      St.sel = p.id; armAction('pass'); return true;
+    }
+    return false;
+  }
+  $('pitch').addEventListener('contextmenu', (e) => { if (armPassOnCarrier(e.clientX, e.clientY)) e.preventDefault(); });
+  let pressTimer = null, pressMoved = false, suppressClick = false;
+  $('pitch').addEventListener('touchstart', (e) => {
+    pressMoved = false;
+    const t = e.touches[0]; if (!t) return;
+    pressTimer = setTimeout(() => {
+      if (!pressMoved && armPassOnCarrier(t.clientX, t.clientY)) suppressClick = true;
+    }, 420);
+  }, { passive: true });
+  $('pitch').addEventListener('touchmove', () => { pressMoved = true; if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } }, { passive: true });
+  $('pitch').addEventListener('touchend', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } }, { passive: true });
+  // swallow the click that follows a long-press
+  $('pitch').addEventListener('click', (e) => { if (suppressClick) { suppressClick = false; e.stopImmediatePropagation(); } }, true);
 
   $('btn-submit').onclick = submitOrders;
   function submitOrders() {
@@ -303,24 +425,44 @@
   function onResolve(m) {
     St.snap = m.snapshot; stopTimer();
     $('btn-submit').style.display = 'none';
+    const shotEv = m.events.find(ev => ev.t === 'shootResult');
     // floats from events
     for (const ev of m.events) {
-      if (ev.t === 'goal') Pitch.addFloat('GOAL!', 2, ev.team === 0 ? 0 : 7, '#19a64a');
+      if (ev.t === 'goal') Pitch.addFloat('GOAL!', 2, ev.team === 0 ? 0 : St.snap.rows - 1, '#19a64a');
       else if (ev.t === 'intercept') Pitch.addFloat('INTERCEPTED', ev.at.col, ev.at.row, '#d11f2d');
-      else if (ev.t === 'duelResult') {
-        const a = St.snap.players.find(p => p.id === ev.attackerId) || { col: 2, row: 4 };
-        if (ev.tackle) Pitch.addFloat('TACKLED!', a.col, a.row, '#d11f2d');
-        else if (ev.skill) Pitch.addFloat('SKILL!', a.col, a.row, '#1f4fd1');
-        else if (ev.evade) Pitch.addFloat('GETS PAST', a.col, a.row, '#1f4fd1');
-        else Pitch.addFloat('WON BALL', a.col, a.row, '#111');
-      } else if (ev.t === 'shootResult' && !ev.goal) {
-        Pitch.addFloat(ev.blocked ? 'OFF TARGET' : 'SAVED!', ev.at.col, ev.at.row, '#d11f2d');
+      else if (ev.t === 'loose') Pitch.addFloat('LOOSE!', ev.at.col, ev.at.row, '#b8860b');
+      else if (ev.t === 'challenge') {
+        const txt = ev.win === 'defender' ? 'WON BALL!' : ev.shielded ? 'HELD OFF' : 'KEPT IT';
+        const col = ev.win === 'defender' ? '#d11f2d' : '#1f4fd1';
+        Pitch.addFloat(txt, ev.at.col, ev.at.row, col);
       }
     }
-    setTimeout(() => { ov('ov-duel', false); ov('ov-shoot', false); }, 250);
     Pitch.setSnapshot(m.snapshot, true);
     updateHud();
     $('match-msg').textContent = '';
+    if (shotEv) { animateShot(shotEv); ov('ov-duel', false); }   // keep shoot overlay for the animation
+    else setTimeout(() => { ov('ov-duel', false); ov('ov-shoot', false); }, 250);
+  }
+
+  function animateShot(ev) {
+    const ball = $('shoot-ball'), result = $('shoot-result');
+    const xOf = { L: '30%', R: '70%' };
+    result.className = 'shoot-result'; result.textContent = '';
+    ball.className = 'shoot-ball'; ball.style.left = '50%'; ball.style.top = '78%';
+    if (ev.dive) moveKeeper(ev.dive);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      ball.classList.add('fly');
+      ball.style.left = xOf[ev.cell] || '50%';
+      ball.style.top = ev.goal ? '14%' : '50%';
+    }));
+    setTimeout(() => {
+      if (ev.goal) { result.textContent = 'GOAL!'; result.className = 'shoot-result show goal'; }
+      else { result.textContent = 'SAVED!'; result.className = 'shoot-result show save'; }
+    }, 520);
+    setTimeout(() => {
+      ov('ov-shoot', false);
+      ball.className = 'shoot-ball'; result.className = 'shoot-result'; result.textContent = '';
+    }, 2300);
   }
 
   // ---- duel mini-game -------------------------------------------------------
@@ -347,7 +489,7 @@
       };
     });
     setTimeout(() => ov('ov-duel', true), 420);
-    autoDecision(() => { sendWs({ t: 'duelDir', dir: 'C' }); });
+    autoDecision(() => { sendWs({ t: 'duelDir', dir: 'C' }); }, m.deadline);
   }
 
   // ---- shoot mini-game ------------------------------------------------------
@@ -358,44 +500,36 @@
     const isShooter = m.role === 'shooter';
     const gk = m.gkId ? m.snapshot.players.find(p => p.id === m.gkId) : null;
     $('shoot-title').textContent = isShooter ? 'Your shot' : 'Big save needed';
-    $('shoot-prompt').textContent = isShooter ? 'Pick your placement' : 'Pick your dive';
+    $('shoot-prompt').textContent = isShooter ? 'Pick a corner' : 'Pick your dive';
     $('shoot-wait').textContent = '';
     if (gk) paintFigure($('shoot-gk'), gk, { team: gk.team === 0 ? 'blue' : 'red' });
 
     const zonesWrap = $('goal-zones'); zonesWrap.innerHTML = '';
-    const codes = ['FL', 'L', 'C', 'R', 'FR'];
-    const labels = isShooter ? ['◤', 'L', 'C', 'R', '◥'] : ['L', 'L', 'C', 'R', 'R'];
-    const diveOf = { FL: 'L', L: 'L', C: 'C', R: 'R', FR: 'R' };
     let locked = false;
-    codes.forEach((code, i) => {
-      const z = document.createElement('div'); z.className = 'z'; z.textContent = labels[i];
+    [['L', '◀ Left'], ['R', 'Right ▶']].forEach(([code, label]) => {
+      const z = document.createElement('div'); z.className = 'z'; z.textContent = label;
       z.onclick = () => {
         if (locked) return; locked = true;
-        if (isShooter) {
-          z.classList.add('on');
-          sendWs({ t: 'shootSel', sel: code });
-        } else {
-          const dive = diveOf[code];
-          [...zonesWrap.children].forEach((c, j) => { if (diveOf[codes[j]] === dive) c.classList.add('gk'); });
-          moveKeeper(dive);
-          sendWs({ t: 'shootSel', sel: dive });
-        }
+        z.classList.add(isShooter ? 'on' : 'gk');
+        if (!isShooter) moveKeeper(code);
+        sendWs({ t: 'shootSel', sel: code });
         $('shoot-wait').textContent = 'Locked in…';
       };
       zonesWrap.appendChild(z);
     });
     setTimeout(() => ov('ov-shoot', true), 420);
-    autoDecision(() => { sendWs({ t: 'shootSel', sel: isShooter ? 'C' : 'C' }); });
+    autoDecision(() => { sendWs({ t: 'shootSel', sel: Math.random() < 0.5 ? 'L' : 'R' }); }, m.deadline);
   }
   function moveKeeper(dive) {
     const gk = $('shoot-gk');
-    gk.style.left = dive === 'L' ? '20%' : dive === 'R' ? '80%' : '50%';
+    gk.style.left = dive === 'L' ? '28%' : '72%';
   }
 
-  // auto-pick after the decision window if the player did nothing
-  function autoDecision(fn) {
+  // auto-pick just before the server deadline if the player did nothing
+  function autoDecision(fn, deadline) {
     clearTimeout(St.decTimer);
-    St.decTimer = setTimeout(fn, 5600);
+    const ms = deadline ? Math.max(400, deadline - Date.now() - 400) : 5600;
+    St.decTimer = setTimeout(fn, ms);
   }
 
   // ---- match end ------------------------------------------------------------
@@ -405,15 +539,23 @@
     $('end-title').textContent = m.won ? 'YOU WIN' : 'YOU LOSE';
     $('end-title').style.color = m.won ? 'var(--blue)' : 'var(--red)';
     $('end-score').textContent = `${m.score[St.you]} – ${m.score[1 - St.you]}`;
-    const rw = $('end-reward'); rw.innerHTML = '';
-    if (m.won && m.reward) {
-      const wrap = document.createElement('div'); wrap.className = 'rc';
-      const c = mkCanvas(80, 110); paintFigure(c, m.reward, { team: 'blue' });
-      wrap.appendChild(c);
-      wrap.insertAdjacentHTML('beforeend',
-        `<div class="rn">${m.reward.name} · ${m.reward.ovr}</div><div class="rs">Unlocked &amp; added to your collection</div>`);
-      rw.appendChild(wrap);
-    }
+    const label = $('end-pack-label'), wrap = $('end-pack'); wrap.innerHTML = '';
+    if (m.won && m.pack && m.pack.length) {
+      label.textContent = 'You won a pack';
+      m.pack.forEach((pl, i) => {
+        const r = rarity(pl.ovr);
+        const flip = document.createElement('div'); flip.className = 'flip';
+        const inner = document.createElement('div'); inner.className = 'flip-in';
+        const back = document.createElement('div'); back.className = 'flip-face flip-back'; back.textContent = 'TURF';
+        const front = document.createElement('div'); front.className = 'flip-face flip-front r-' + r;
+        const c = mkCanvas(60, 80); paintFigure(c, pl, { team: 'blue' }); front.appendChild(c);
+        front.insertAdjacentHTML('beforeend', `<div class="ov">${pl.ovr}</div><div class="nm">${pl.name.split(' ').slice(-1)[0]}</div>`);
+        inner.appendChild(back); inner.appendChild(front); flip.appendChild(inner);
+        flip.onclick = () => flip.classList.add('on');
+        wrap.appendChild(flip);
+        setTimeout(() => flip.classList.add('on'), 500 + i * 450);
+      });
+    } else { label.textContent = ''; }
     ov('ov-duel', false); ov('ov-shoot', false);
     ov('ov-end', true);
   }

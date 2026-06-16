@@ -4,14 +4,17 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import * as engine from './lib/engine.js';
+import * as bot from './lib/bot.js';
 import { getProfile, saveProfile, createProfile, backend } from './lib/store.js';
-import { rollReward, squadAverage, makeSquadNear } from './lib/players.js';
+import { makePack, squadAverage, makeSquadNear } from './lib/players.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
-const PLANNING_MS = Number(process.env.PLANNING_MS || 12000);
-const DECISION_MS = Number(process.env.DECISION_MS || 6000);
+const PLANNING_MS = Number(process.env.PLANNING_MS || 45000);
+const DECISION_MS = Number(process.env.DECISION_MS || 20000);
 const GOAL_TARGET = Number(process.env.GOAL_TARGET || 3);
+const RESOLVE_GAP_MS = Number(process.env.RESOLVE_GAP_MS || 1500);
+const SHOT_GAP_MS = Number(process.env.SHOT_GAP_MS || 2800);
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
@@ -20,8 +23,11 @@ app.get('/health', (_, res) => res.json({ ok: true, backend }));
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-const rooms = new Map(); // code -> room
+const rooms = new Map();
 const send = (ws, obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
+const humans = (room) => room.players;
+const broadcast = (room, obj) => room.players.forEach(p => send(p.ws, obj));
+function clearTimers(room) { if (room.timer) { clearTimeout(room.timer); room.timer = null; } }
 
 function roomCode() {
   const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -29,21 +35,23 @@ function roomCode() {
   while (rooms.has(c));
   return c;
 }
-
-function clearTimers(room) { if (room.timer) { clearTimeout(room.timer); room.timer = null; } }
-
-function broadcast(room, obj) { room.players.forEach(p => send(p.ws, obj)); }
+const validSquad = (p) => p && Array.isArray(p.squad) && p.squad.length === 3;
 
 // ---- match lifecycle --------------------------------------------------------
 function startMatch(room) {
-  const [a, b] = room.players;
-  const squadA = (a.profile.squad && a.profile.squad.length === 5) ? a.profile.squad : makeSquadNear(78);
-  const squadB = (b.profile.squad && b.profile.squad.length === 5) ? b.profile.squad : makeSquadNear(squadAverage(squadA));
+  const human = room.players[0];
+  const squadA = validSquad(human.profile) ? human.profile.squad : makeSquadNear(78);
+  let squadB;
+  if (room.bot) squadB = room.bot.squad;
+  else { const b = room.players[1]; squadB = validSquad(b.profile) ? b.profile.squad : makeSquadNear(squadAverage(squadA)); }
   room.match = engine.createMatch(squadA, squadB);
   room.orders = [null, null];
   room.over = false;
-  send(a.ws, { t: 'matchStart', you: 0, snapshot: engine.snapshot(room.match) });
-  send(b.ws, { t: 'matchStart', you: 1, snapshot: engine.snapshot(room.match) });
+  room.planMs = room.bot ? PLANNING_MS * 4 : PLANNING_MS;
+  room.decMs = room.bot ? DECISION_MS * 2 : DECISION_MS;
+  for (const p of room.players)
+    send(p.ws, { t: 'matchStart', you: p.team, snapshot: engine.snapshot(room.match),
+                 vsBot: !!room.bot, difficulty: room.bot ? room.bot.diff : null, goalTarget: GOAL_TARGET });
   beginPlanning(room);
 }
 
@@ -52,11 +60,14 @@ function beginPlanning(room) {
   room.orders = [null, null];
   const m = room.match;
   m.phase = 'PLANNING';
-  const deadline = Date.now() + PLANNING_MS;
+  const deadline = Date.now() + room.planMs;
   room.deadline = deadline;
   broadcast(room, { t: 'turn', snapshot: engine.snapshot(m), deadline });
-  room.timer = setTimeout(() => doResolve(room), PLANNING_MS + 300);
+  if (room.bot) { room.orders[room.bot.team] = bot.botOrders(m, room.bot.team, room.bot.diff); maybeResolve(room); }
+  room.timer = setTimeout(() => doResolve(room), room.planMs + 300);
 }
+
+function maybeResolve(room) { if (room.orders[0] && room.orders[1]) doResolve(room); }
 
 function doResolve(room) {
   clearTimers(room);
@@ -65,66 +76,74 @@ function doResolve(room) {
   const { events, pending } = engine.resolveOrders(m, room.orders[0] || {}, room.orders[1] || {});
 
   if (pending && pending.kind === 'duel') {
-    const att = engine.snapshot(m).players.find(p => p.id === pending.attackerId);
-    const attTeam = att.team;
+    const snap = engine.snapshot(m);
+    const att = snap.players.find(p => p.id === pending.attackerId);
     room.duel = [null, null];
     room.players.forEach(p => {
-      const role = p.team === attTeam ? 'attacker' : 'defender';
-      send(p.ws, { t: 'duel', events, snapshot: engine.snapshot(m), role,
+      const role = p.team === att.team ? 'attacker' : 'defender';
+      send(p.ws, { t: 'duel', events, snapshot: snap, role,
                    attackerId: pending.attackerId, defenderId: pending.defenderId,
-                   deadline: Date.now() + DECISION_MS });
+                   deadline: Date.now() + room.decMs });
     });
-    room.timer = setTimeout(() => finishDuel(room), DECISION_MS + 300);
+    if (room.bot) {
+      const role = room.bot.team === att.team ? 'attacker' : 'defender';
+      room.duel[room.bot.team === att.team ? 0 : 1] = bot.botDuel(m, role, room.bot.diff);
+      if (room.duel[0] && room.duel[1]) return finishDuel(room);
+    }
+    room.timer = setTimeout(() => finishDuel(room), room.decMs + 300);
     return;
   }
   if (pending && pending.kind === 'shoot') {
-    const sh = engine.snapshot(m).players.find(p => p.id === pending.shooterId);
-    const shTeam = sh.team;
+    const snap = engine.snapshot(m);
+    const sh = snap.players.find(p => p.id === pending.shooterId);
     room.shoot = [null, null];
     room.players.forEach(p => {
-      const role = p.team === shTeam ? 'shooter' : 'gk';
-      send(p.ws, { t: 'shoot', events, snapshot: engine.snapshot(m), role,
+      const role = p.team === sh.team ? 'shooter' : 'gk';
+      send(p.ws, { t: 'shoot', events, snapshot: snap, role,
                    shooterId: pending.shooterId, gkId: pending.gkId,
-                   deadline: Date.now() + DECISION_MS });
+                   deadline: Date.now() + room.decMs });
     });
-    room.timer = setTimeout(() => finishShoot(room), DECISION_MS + 300);
+    if (room.bot) {
+      const role = room.bot.team === sh.team ? 'shooter' : 'gk';
+      room.shoot[room.bot.team === sh.team ? 0 : 1] = bot.botShoot(m, role, room.bot.diff);
+      if (room.shoot[0] && room.shoot[1]) return finishShoot(room);
+    }
+    room.timer = setTimeout(() => finishShoot(room), room.decMs + 300);
     return;
   }
 
   broadcast(room, { t: 'resolve', events, snapshot: engine.snapshot(m) });
-  afterResolve(room);
+  afterResolve(room, events);
 }
 
 function finishDuel(room) {
   clearTimers(room);
   const m = room.match;
   if (m.phase !== 'DUEL') return;
-  const aDir = room.duel[0] || 'C';
-  const dDir = room.duel[1] || 'C';
-  const { events } = engine.resolveDuel(m, aDir, dDir);
+  const { events } = engine.resolveDuel(m, room.duel[0] || 'C', room.duel[1] || 'C');
   broadcast(room, { t: 'resolve', events, snapshot: engine.snapshot(m) });
-  afterResolve(room);
+  afterResolve(room, events);
 }
 
 function finishShoot(room) {
   clearTimers(room);
   const m = room.match;
   if (m.phase !== 'SHOOT') return;
-  const placement = room.shoot[0] || 'C';
-  const gkDir = room.shoot[1] || 'C';
-  const { events } = engine.resolveShoot(m, placement, gkDir);
+  const { events } = engine.resolveShoot(m, room.shoot[0] || 'C', room.shoot[1] || 'C');
   broadcast(room, { t: 'resolve', events, snapshot: engine.snapshot(m) });
-  afterResolve(room);
+  afterResolve(room, events);
 }
 
-function afterResolve(room) {
+function afterResolve(room, events) {
   const m = room.match;
   if (m.score[0] >= GOAL_TARGET || m.score[1] >= GOAL_TARGET) {
     endMatch(room, m.score[0] > m.score[1] ? 0 : 1);
     return;
   }
-  // small gap so clients can animate, then next planning
-  room.timer = setTimeout(() => beginPlanning(room), 1400);
+  // hold longer after a shot so the result animation can play out
+  const shotish = events && events.some(e => e.t === 'shootResult' || e.t === 'goal');
+  const gap = shotish ? Math.max(RESOLVE_GAP_MS, SHOT_GAP_MS) : RESOLVE_GAP_MS;
+  room.timer = setTimeout(() => beginPlanning(room), gap);
 }
 
 async function endMatch(room, winnerTeam) {
@@ -132,20 +151,23 @@ async function endMatch(room, winnerTeam) {
   room.over = true;
   for (const p of room.players) {
     const won = p.team === winnerTeam;
-    let reward = null;
+    const my = p.team, opp = 1 - p.team;
+    let pack = null;
     if (p.profile && p.profile.token) {
+      p.profile.matches = (p.profile.matches || 0) + 1;
+      p.profile.goalsFor = (p.profile.goalsFor || 0) + room.match.score[my];
+      p.profile.goalsAgainst = (p.profile.goalsAgainst || 0) + room.match.score[opp];
       if (won) {
         p.profile.wins = (p.profile.wins || 0) + 1;
-        reward = rollReward(squadAverage(p.profile.squad || []));
-        p.profile.collection = p.profile.collection || [];
-        p.profile.collection.push(reward);
+        pack = makePack(squadAverage(p.profile.squad || []));
+        p.profile.packs = (p.profile.packs || 0) + 1;
+        p.profile.collection = (p.profile.collection || []).concat(pack);
       } else {
         p.profile.losses = (p.profile.losses || 0) + 1;
       }
       try { await saveProfile(p.profile); } catch {}
     }
-    send(p.ws, { t: 'matchEnd', winnerTeam, won, reward,
-                 score: room.match.score, profile: p.profile });
+    send(p.ws, { t: 'matchEnd', winnerTeam, won, pack, score: room.match.score, profile: p.profile, vsBot: !!room.bot });
   }
 }
 
@@ -183,7 +205,7 @@ wss.on('connection', (ws) => {
         case 'saveSquad': {
           const profile = await getProfile(String(msg.token || '').trim());
           if (!profile) return send(ws, { t: 'error', msg: 'Unknown code.' });
-          if (Array.isArray(msg.squad) && msg.squad.length === 5) {
+          if (Array.isArray(msg.squad) && msg.squad.length === 3) {
             profile.squad = msg.squad;
             await saveProfile(profile);
             ws.profile = profile;
@@ -191,11 +213,22 @@ wss.on('connection', (ws) => {
           send(ws, { t: 'profile', profile });
           break;
         }
+        case 'soloMatch': {
+          if (!ws.profile) return send(ws, { t: 'error', msg: 'Log in first.' });
+          const diff = msg.difficulty === 'hard' ? 'hard' : 'easy';
+          const myAvg = squadAverage(ws.profile.squad || []);
+          const target = diff === 'hard' ? Math.max(83, myAvg + 2) : Math.min(76, myAvg - 3);
+          const code = roomCode();
+          const room = { code, players: [{ ws, profile: ws.profile, team: 0 }],
+                         bot: { team: 1, diff, squad: makeSquadNear(target) }, match: null, timer: null };
+          rooms.set(code, room); ws.roomCode = code;
+          startMatch(room);
+          break;
+        }
         case 'createRoom': {
           if (!ws.profile) return send(ws, { t: 'error', msg: 'Log in first.' });
           const code = roomCode();
-          const room = { code, players: [{ ws, profile: ws.profile, team: 0 }], match: null, timer: null };
-          rooms.set(code, room);
+          rooms.set(code, { code, players: [{ ws, profile: ws.profile, team: 0 }], match: null, timer: null });
           ws.roomCode = code;
           send(ws, { t: 'roomCreated', code });
           break;
@@ -205,7 +238,7 @@ wss.on('connection', (ws) => {
           const code = String(msg.code || '').toUpperCase().trim();
           const room = rooms.get(code);
           if (!room) return send(ws, { t: 'error', msg: 'Room not found.' });
-          if (room.players.length >= 2) return send(ws, { t: 'error', msg: 'Room is full.' });
+          if (room.bot || room.players.length >= 2) return send(ws, { t: 'error', msg: 'Room is full.' });
           room.players.push({ ws, profile: ws.profile, team: 1 });
           ws.roomCode = code;
           startMatch(room);
@@ -215,7 +248,7 @@ wss.on('connection', (ws) => {
           const room = rooms.get(ws.roomCode); if (!room || room.over) return;
           const me = room.players.find(p => p.ws === ws); if (!me) return;
           room.orders[me.team] = msg.orders || {};
-          if (room.orders[0] && room.orders[1]) doResolve(room);
+          maybeResolve(room);
           break;
         }
         case 'duelDir': {
@@ -223,8 +256,7 @@ wss.on('connection', (ws) => {
           const me = room.players.find(p => p.ws === ws); if (!me) return;
           const att = room.match.players.find(p => p.id === room.match.pending?.attackerId);
           if (!att) return;
-          const slot = me.team === att.team ? 0 : 1;
-          room.duel[slot] = msg.dir;
+          room.duel[me.team === att.team ? 0 : 1] = msg.dir;
           if (room.duel[0] && room.duel[1]) finishDuel(room);
           break;
         }
@@ -233,14 +265,13 @@ wss.on('connection', (ws) => {
           const me = room.players.find(p => p.ws === ws); if (!me) return;
           const sh = room.match.players.find(p => p.id === room.match.pending?.shooterId);
           if (!sh) return;
-          const slot = me.team === sh.team ? 0 : 1;
-          room.shoot[slot] = msg.sel;
+          room.shoot[me.team === sh.team ? 0 : 1] = msg.sel;
           if (room.shoot[0] && room.shoot[1]) finishShoot(room);
           break;
         }
         case 'rematch': {
           const room = rooms.get(ws.roomCode);
-          if (room && room.players.length === 2) startMatch(room);
+          if (room && (room.players.length === 2 || room.bot)) startMatch(room);
           break;
         }
         case 'leave': leaveRoom(ws); break;
