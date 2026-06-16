@@ -104,16 +104,16 @@
     if (!ctx) return;
     const W = cell * COLS, gridY = PAD * cell, gridH = cell * ROWS, H = cell * (ROWS + PAD * 2);
     ctx.clearRect(0, 0, W, H);
-    // surrounds behind the goals (darker grass)
-    ctx.fillStyle = '#1d6536'; ctx.fillRect(0, 0, W, H);
-    // pitch with mown stripes
-    for (let r = 0; r < ROWS; r++) { ctx.fillStyle = (r % 2 === 0) ? '#2fa052' : '#2a9149'; ctx.fillRect(0, gridY + r * cell, W, cell); }
-    // grid (subtle white)
-    ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 1;
+    // surrounds behind the goals (light)
+    ctx.fillStyle = '#e8ebef'; ctx.fillRect(0, 0, W, H);
+    // pitch (white)
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, gridY, W, gridH);
+    // grid (bold, clearly visible)
+    ctx.strokeStyle = '#a9afb8'; ctx.lineWidth = 1.5;
     for (let c = 0; c <= COLS; c++) line(c * cell, gridY, c * cell, gridY + gridH);
     for (let r = 0; r <= ROWS; r++) line(0, gridY + r * cell, W, gridY + r * cell);
-    // halfway + centre (white)
-    ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2; line(0, gridY + gridH / 2, W, gridY + gridH / 2);
+    // halfway + centre
+    ctx.strokeStyle = '#878d96'; ctx.lineWidth = 2; line(0, gridY + gridH / 2, W, gridY + gridH / 2);
     ctx.beginPath(); ctx.arc(W / 2, gridY + gridH / 2, cell * 0.55, 0, Math.PI * 2); ctx.stroke();
 
     drawGoals(gridY, gridH);
@@ -159,10 +159,10 @@
     // top goal box (render rows above the grid), bottom goal box (below)
     for (const top of [true, false]) {
       const y = top ? 0 : gridY + gridH;
-      ctx.fillStyle = 'rgba(240,245,240,0.95)'; ctx.fillRect(x0, y, w, cell);
-      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.strokeRect(x0 + 1.5, top ? 1.5 : y + 1.5, w - 3, cell - 3);
+      ctx.fillStyle = '#dfe3e9'; ctx.fillRect(x0, y, w, cell);
+      ctx.strokeStyle = '#7f8690'; ctx.lineWidth = 3; ctx.strokeRect(x0 + 1.5, top ? 1.5 : y + 1.5, w - 3, cell - 3);
       // net hatch
-      ctx.strokeStyle = 'rgba(120,140,120,0.45)'; ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(120,128,140,0.5)'; ctx.lineWidth = 1;
       for (let gx = x0 + 8; gx < x0 + w; gx += 8) line(gx, y + 3, gx, y + cell - 3);
       for (let gy = y + 8; gy < y + cell; gy += 8) line(x0 + 3, gy, x0 + w - 3, gy);
     }
@@ -172,7 +172,7 @@
     const o = overlay;
     if (o.reach) for (const sq of o.reach) {
       const p = px(sq.col, sq.row);
-      const rgb = o.kind === 'pass' ? '255,255,255' : o.kind === 'longpass' ? '255,211,77' : '47,107,255';
+      const rgb = o.kind === 'pass' ? '24,28,34' : o.kind === 'longpass' ? '184,134,11' : '47,107,255';
       ctx.fillStyle = `rgba(${rgb},0.13)`; roundRect(p.x + 2.5, p.y + 2.5, cell - 5, cell - 5, cell * 0.2); ctx.fill();
       ctx.fillStyle = `rgba(${rgb},0.7)`; ctx.beginPath(); ctx.arc(p.x + cell / 2, p.y + cell / 2, cell * 0.07, 0, Math.PI * 2); ctx.fill();
     }
@@ -190,7 +190,7 @@
     }
     if (o.sel) {
       const c = center(o.sel.col, o.sel.row), r = cell * 0.45;
-      ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(14,16,20,0.12)'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.stroke();
       ctx.strokeStyle = 'rgba(47,107,255,0.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(c.x, c.y, r + 3, 0, Math.PI * 2); ctx.stroke();
     }
   }

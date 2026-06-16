@@ -30,7 +30,7 @@
 
   function show(id) { document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); $(id).classList.add('active'); }
   const ov = (id, on) => $(id).classList.toggle('show', on);
-  const hideAllOverlays = () => ['ov-reco', 'ov-end', 'ov-shoot', 'ov-diff', 'ov-code'].forEach(i => ov(i, false));
+  const hideAllOverlays = () => ['ov-reco', 'ov-end', 'ov-shoot', 'ov-diff', 'ov-code', 'ov-settings'].forEach(i => ov(i, false));
   const matchMsg = (t) => { $('match-msg').textContent = t || ''; };
   function flashErr(msg) { const el = document.querySelector('.screen.active .err'); if (el) { el.textContent = msg; setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 3000); } }
 
@@ -112,7 +112,18 @@
   $('btn-rules').onclick = () => startTutorial(false);
   $('btn-edit').onclick = openSquad;
   document.querySelectorAll('.nav-home').forEach(b => b.onclick = () => { sendWs({ t: 'leave' }); goHome(); });
-  $('btn-usecode').onclick = () => { $('code-err').textContent = ''; $('code-input').value = ''; ov('ov-code', true); };
+  let resetArmed = false;
+  $('btn-settings').onclick = () => {
+    resetArmed = false; $('set-reset').textContent = 'Reset team'; $('set-reset').classList.remove('armed');
+    $('set-code').textContent = St.token || (St.profile && St.profile.token) || '----';
+    ov('ov-settings', true);
+  };
+  $('set-close').onclick = () => ov('ov-settings', false);
+  $('set-usecode').onclick = () => { ov('ov-settings', false); $('code-err').textContent = ''; $('code-input').value = ''; ov('ov-code', true); };
+  $('set-reset').onclick = () => {
+    if (!resetArmed) { resetArmed = true; $('set-reset').textContent = 'Tap again to wipe this team'; $('set-reset').classList.add('armed'); return; }
+    resetArmed = false; lsSet('turf_token', ''); St.token = null; St.profile = null; ov('ov-settings', false); sendWs({ t: 'newAccount' });
+  };
   $('code-cancel').onclick = () => ov('ov-code', false);
   $('code-go').onclick = () => { const c = $('code-input').value.trim(); if (c) { lsSet('turf_token', c); St.token = c; sendWs({ t: 'login', token: c }); ov('ov-code', false); } };
   $('btn-create').onclick = () => sendWs({ t: 'createRoom' });
@@ -202,7 +213,6 @@
     $('hud-you').className = 'badge' + (youBlue ? '' : ' red');
     $('hud-opp').className = 'badge' + (youBlue ? ' red' : '');
     $('hud-opp').textContent = m.vsBot ? (m.difficulty === 'hard' ? 'HARD BOT' : 'EASY BOT') : 'RIVAL';
-    $('hud-target').textContent = `First to ${St.goalTarget} wins a pack`;
     $('btn-submit').style.display = ''; $('btn-submit').textContent = 'Submit Moves!'; $('btn-submit').classList.remove('waiting');
     updateHud(); matchMsg('');
   }
@@ -214,10 +224,6 @@
     const sy = s.score[St.you], so = s.score[1 - St.you];
     if (St._sy !== undefined && (sy !== St._sy || so !== St._so)) { const el = document.querySelector('.mhud-score'); if (el) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); } }
     St._sy = sy; St._so = so;
-    const att = s.possession === St.you, loose = s.possession === -1;
-    const bar = $('hud-poss');
-    bar.textContent = loose ? 'BALL LOOSE — CHASE IT' : att ? 'YOU ATTACK' : 'YOU DEFEND';
-    bar.className = 'poss-bar ' + (loose ? 'loose' : att ? 'attack' : 'defend');
   }
 
   function onTurn(m) {
@@ -336,11 +342,11 @@
     else if (sp) { Pitch.flyBall([], { lofts: [0.16], durs: [300] }); landDelay = 120; }
     const float = () => {
       for (const ev of m.events) {
-        if (ev.t === 'goal') Pitch.addFloat('GOAL!', 2, ev.team === 0 ? 0 : St.snap.rows - 1, '#ffd34d');
+        if (ev.t === 'goal') Pitch.addFloat('GOAL!', 2, ev.team === 0 ? 0 : St.snap.rows - 1, '#e0a200');
         else if (ev.t === 'intercept') Pitch.addFloat('INTERCEPTED', ev.at.col, ev.at.row, '#ff3b4e');
-        else if (ev.t === 'loose') Pitch.addFloat('LOOSE BALL', ev.at.col, ev.at.row, '#ffce3a');
-        else if (ev.t === 'control') Pitch.addFloat('IN BEHIND!', ev.at.col, ev.at.row, '#ffffff');
-        else if (ev.t === 'challenge') Pitch.addFloat(ev.win === 'defender' ? 'WON BALL!' : 'SHIELDED', ev.at.col, ev.at.row, ev.win === 'defender' ? '#ff3b4e' : '#9fd0ff');
+        else if (ev.t === 'loose') Pitch.addFloat('LOOSE BALL', ev.at.col, ev.at.row, '#b8860b');
+        else if (ev.t === 'control') Pitch.addFloat('IN BEHIND!', ev.at.col, ev.at.row, '#1f50d8');
+        else if (ev.t === 'challenge') Pitch.addFloat(ev.win === 'defender' ? 'WON BALL!' : 'SHIELDED', ev.at.col, ev.at.row, ev.win === 'defender' ? '#ff3b4e' : '#2f6bff');
       }
     };
     if (landDelay) setTimeout(float, landDelay); else float();

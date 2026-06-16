@@ -187,6 +187,14 @@ async function forfeitLeave(ws) {
     if (room.match && !room.over) {
       room.over = true;
       const m = room.match;
+      const earlyAbort = (m.turn <= 1 && m.score[0] === 0 && m.score[1] === 0);
+      if (earlyAbort) {
+        // bailed on the opening move: no loss for the leaver, no forfeit win for anyone
+        if (opp && opp.ws) send(opp.ws, { t: 'oppLeft' });
+        if (ws.roomCode === code) ws.roomCode = null;
+        rooms.delete(code);
+        return;
+      }
       if (leaver.profile && leaver.profile.token) {
         leaver.profile.matches = (leaver.profile.matches || 0) + 1;
         leaver.profile.losses = (leaver.profile.losses || 0) + 1;
