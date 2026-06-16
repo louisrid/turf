@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/css/style.css?v=050" />
+<link rel="stylesheet" href="/css/style.css?v=051" />
 </head>
 <body>
 <div id="app">
@@ -30,7 +30,7 @@
     <div class="menu">
       <button id="btn-solo" class="tile blue"><span class="t-ico">⚽</span><span class="t-lab">Play Solo</span><span class="t-cap">vs the bot</span></button>
       <button id="btn-online" class="tile red"><span class="t-ico">🆚</span><span class="t-lab">Play 1v1</span><span class="t-cap">a friend</span></button>
-      <button id="btn-collection" class="tile dark"><span class="t-ico">🃏</span><span class="t-lab">Collection</span><span class="t-cap" id="tile-col-cap">your cards</span></button>
+      <button id="btn-collection" class="tile dark"><span class="t-ico">🃏</span><span class="t-lab">Squad</span><span class="t-cap" id="tile-col-cap">your cards</span></button>
       <button id="btn-rules" class="tile dark"><span class="t-ico">📖</span><span class="t-lab">Rules</span><span class="t-cap">how to play</span></button>
     </div>
 
@@ -75,10 +75,11 @@
 
   <!-- SQUAD -->
   <section id="screen-squad" class="screen">
-    <div class="head-row"><button class="back nav-home" aria-label="Back"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H6"/><path d="M12 5l-7 7 7 7"/></svg></button><h2>Your squad</h2></div>
-    <p class="hint">Pick 3: one keeper, two outfielders. Only <b>SHO</b> matters.</p>
-    <div id="sq-active" class="sq-grid"></div>
-    <div class="panel-title mt">Owned players</div>
+    <div class="head-row"><button class="back nav-home" aria-label="Back"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H6"/><path d="M12 5l-7 7 7 7"/></svg></button><h2>Squad</h2></div>
+    <p class="hint">Tap a card to use or bench it. Need 3: one keeper, two outfielders.</p>
+    <div class="panel-title">Your starting 3</div>
+    <div id="sq-active" class="sq-grid active-row"></div>
+    <div class="panel-title mt">Your players</div>
     <div id="sq-pool" class="sq-pool"></div>
     <div id="sq-err" class="err"></div>
     <button id="sq-save" class="primary big sticky">Save squad</button>
@@ -199,8 +200,8 @@
   </div>
 
 </div>
-<script src="/js/sprites.js?v=050"></script>
-<script src="/js/render.js?v=050"></script>
-<script src="/js/app.js?v=050"></script>
+<script src="/js/sprites.js?v=051"></script>
+<script src="/js/render.js?v=051"></script>
+<script src="/js/app.js?v=051"></script>
 </body>
 </html>

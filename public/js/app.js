@@ -1,6 +1,6 @@
 /* TURF client controller. Plain globals, no build step. */
 (function () {
-  const VERSION = 'v0.5.0';
+  const VERSION = 'v0.5.1';
   const $ = (id) => document.getElementById(id);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const cheb = (a, b) => Math.max(Math.abs(a.col - b.col), Math.abs(a.row - b.row));
@@ -38,10 +38,14 @@
     const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.imageSmoothingEnabled = false;
     const S = window.Sprites, U = canvas.width / 18;
     const ox = (canvas.width - 16 * U) / 2, oy = (canvas.height - 22 * U) / 2;
-    S.drawFigure(ctx, ox, oy, U, { team: opt.team || 'blue', skin: p.look.skin, hair: p.look.hair, hairColor: p.look.hairColor, view: opt.view || 'front', role: p.pos === 'GK' ? 'gk' : 'out' });
+    S.drawFigure(ctx, ox, oy, U, { team: opt.team || 'blue', skin: p.look.skin, hair: p.look.hair, hairColor: p.look.hairColor, beard: p.look.beard, view: opt.view || 'front', role: p.pos === 'GK' ? 'gk' : 'out' });
   }
   function mkCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
-  function rarity(ovr) { return ovr >= 92 ? 'icon' : ovr >= 87 ? 'gold' : ovr >= 82 ? 'silver' : 'bronze'; }
+  function rarity(ovr) { return ovr >= 92 ? 'legendary' : ovr >= 87 ? 'elite' : ovr >= 82 ? 'rare' : ovr >= 77 ? 'uncommon' : 'common'; }
+  const RAR_LABEL = { common: 'Common', uncommon: 'Uncommon', rare: 'Rare', elite: 'Elite', legendary: 'Legendary' };
+  const rarityChip = (ovr) => { const r = rarity(ovr); return `<span class="rar rar-${r}">${RAR_LABEL[r]}</span>`; };
+  const tierTag = (v) => { const t = tierLabel(v); return `<span class="tg t-${t.toLowerCase()}">${t}</span>`; };
+  const statStack = (p) => `<div class="cstats"><div class="cs"><span class="cs-k">SCR</span>${tierTag(p.sho)}</div><div class="cs"><span class="cs-k">PAS</span>${tierTag(p.pas)}</div></div>`;
 
   // ---- networking + reconnect ----------------------------------------------
   function connect() {
@@ -95,7 +99,7 @@
     (p.squad || []).forEach(pl => {
       const d = document.createElement('div'); d.className = 'mini';
       const c = mkCanvas(46, 60); paintFigure(c, pl, { team: 'blue' }); d.appendChild(c);
-      d.insertAdjacentHTML('beforeend', `<div class="ov">${pl.ovr}</div><div class="nm">${pl.name.split(' ').slice(-1)[0]}</div>`);
+      d.insertAdjacentHTML('beforeend', `<div class="nm">${pl.name.split(' ').slice(-1)[0]}</div>`);
       strip.appendChild(d);
     });
     $('home-code').textContent = St.token || '----';
@@ -108,7 +112,7 @@
   $('diff-hard').onclick = () => { ov('ov-diff', false); sendWs({ t: 'soloMatch', difficulty: 'hard' }); };
   $('diff-cancel').onclick = () => ov('ov-diff', false);
   $('btn-online').onclick = () => { $('lobby-box').classList.add('hidden'); $('online-err').textContent = ''; show('screen-online'); };
-  $('btn-collection').onclick = () => { renderCollection(); show('screen-collection'); };
+  $('btn-collection').onclick = () => openSquad();
   $('btn-rules').onclick = () => startTutorial(false);
   $('btn-edit').onclick = openSquad;
   document.querySelectorAll('.nav-home').forEach(b => b.onclick = () => { sendWs({ t: 'leave' }); goHome(); });
@@ -137,18 +141,25 @@
   function renderSquad() {
     const owned = allOwned();
     const active = $('sq-active'); active.innerHTML = '';
-    editActive.forEach(id => { const p = owned.find(x => x.id === id); if (p) active.appendChild(playerCard(p)); });
+    for (let i = 0; i < 3; i++) {
+      const id = editActive[i]; const p = id && owned.find(x => x.id === id);
+      if (p) { const card = playerCard(p); card.onclick = () => toggleSquad(p); active.appendChild(card); }
+      else { const slot = document.createElement('div'); slot.className = 'card slot'; slot.textContent = '+'; active.appendChild(slot); }
+    }
     const pool = $('sq-pool'); pool.innerHTML = '';
-    owned.forEach(p => { const card = playerCard(p); if (editActive.includes(p.id)) card.classList.add('on'); card.onclick = () => toggleSquad(p); pool.appendChild(card); });
+    owned.forEach(p => {
+      const card = playerCard(p);
+      if (editActive.includes(p.id)) { card.classList.add('used'); card.insertAdjacentHTML('beforeend', '<div class="tick">✓</div>'); }
+      card.onclick = () => toggleSquad(p); pool.appendChild(card);
+    });
     const gkCount = editActive.map(id => owned.find(x => x.id === id)).filter(p => p && p.pos === 'GK').length;
     $('sq-err').textContent = editActive.length !== 3 ? `Pick ${3 - editActive.length} more` : gkCount !== 1 ? 'Squad needs exactly one keeper' : '';
   }
   function toggleSquad(p) { if (editActive.includes(p.id)) editActive = editActive.filter(x => x !== p.id); else if (editActive.length < 3) editActive.push(p.id); renderSquad(); }
-  function statLine(p) { return `<div class="meta"><span>SHO ${tierLabel(p.sho)}</span><span>PAS ${tierLabel(p.pas)}</span></div>`; }
   function playerCard(p) {
     const card = document.createElement('div'); card.className = 'card r-' + rarity(p.ovr);
-    const c = mkCanvas(56, 74); paintFigure(c, p, { team: 'blue' }); card.appendChild(c);
-    card.insertAdjacentHTML('beforeend', `<div class="ovr">${p.ovr}</div><div class="pos">${p.pos}</div><div class="nm">${p.name}</div>` + statLine(p));
+    const c = mkCanvas(54, 58); paintFigure(c, p, { team: 'blue' }); card.appendChild(c);
+    card.insertAdjacentHTML('beforeend', `<div class="pos">${p.pos}</div><div class="nm">${p.name.split(' ').slice(-1)[0]}</div>` + statStack(p));
     return card;
   }
   $('sq-save').onclick = () => {
@@ -175,9 +186,8 @@
     for (const p of sorted) {
       const r = rarity(p.ovr);
       const card = document.createElement('div'); card.className = 'pcard r-' + r;
-      const c = mkCanvas(56, 74); paintFigure(c, p, { team: 'blue' }); card.appendChild(c);
-      card.insertAdjacentHTML('beforeend', `<div class="ovr">${p.ovr}</div><div class="pos">${p.pos}</div><div class="nm">${p.name}</div>` +
-        `<div class="tiers"><span class="tg t-${tierLabel(p.sho).toLowerCase()}">SHO ${tierLabel(p.sho)}</span><span class="tg t-${tierLabel(p.pas).toLowerCase()}">PAS ${tierLabel(p.pas)}</span></div>`);
+      const c = mkCanvas(54, 58); paintFigure(c, p, { team: 'blue' }); card.appendChild(c);
+      card.insertAdjacentHTML('beforeend', `<div class="pos">${p.pos}</div><div class="nm">${p.name.split(' ').slice(-1)[0]}</div>` + statStack(p));
       grid.appendChild(card);
     }
   }
@@ -188,7 +198,7 @@
     ['Move at once', 'Order your players, then hit <b>Submit Moves</b>. Both teams resolve at the <b>same time</b> — read your opponent.'],
     ['Moving', 'Tap a player, then a square. <b>2 squares</b> with the ball, <b>3</b> without. You can\'t move onto your own players.'],
     ['On the ball', '<b>Run with ball</b>, <b>short pass</b> (cut only if a defender is in the lane), or a <b>long ball</b> over the top. Pass back to your keeper with a short or long pass to reset.'],
-    ['Two stats', 'Only <b>SHO</b> (finishing) and <b>PAS</b> (long-ball control) matter, each rated <b>BAD / GOOD / SUPERB</b>. Higher SHO scores more, even past a correct keeper. Higher PAS means long balls land at your man instead of bouncing loose.'],
+    ['Two stats', 'Only <b>SCR</b> (scoring) and <b>PAS</b> (long-ball control) matter, each rated <b>BAD / GOOD / SUPERB</b>. Higher SCR scores more, even past a correct keeper. Higher PAS means long balls land at your man instead of bouncing loose.'],
     ['Loose balls', 'A <b>loose ball</b> belongs to no one and pulses on the pitch. Whoever is closest next turn wins it.'],
     ['Winning it back', 'No tackle button — <b>move a defender onto the ball carrier\'s square</b> to win it. Stay goal-side to block runs.'],
     ['Shooting', 'From the last two rows, tap <b>Shoot</b> for a 1 v 1. You pick a corner, the keeper guesses a dive — your live <b>% to score</b> is shown.'],
@@ -258,7 +268,7 @@
 
   function showPop(p) {
     const pop = $('ab-pop'); const mine = p.team === St.you; const last = p.name.split(' ').slice(-1)[0];
-    let html = `<div class="ab-head">${last} · ${p.pos} · <b>SHO ${tierLabel(p.sho)}</b> · <b>PAS ${tierLabel(p.pas)}</b></div>`;
+    let html = `<div class="ab-head"><div class="ab-name">${last} <span class="ab-pos">${p.pos}</span> ${rarityChip(p.ovr)}</div>${statStack(p)}</div>`;
     if (mine && !St.submitted) {
       const acts = actionsFor(p);
       html += '<div class="ab-row">';
@@ -411,9 +421,8 @@
       label.textContent = 'Tap to reveal your new player';
       const pl = m.pack[0], r = rarity(pl.ovr);
       const card = document.createElement('div'); card.className = 'rc r-' + r + ' facedown';
-      const c = mkCanvas(96, 124); paintFigure(c, pl, { team: 'blue' }); card.appendChild(c);
-      card.insertAdjacentHTML('beforeend', `<div class="ovr">${pl.ovr}</div><div class="nm">${pl.name}</div>` +
-        `<div class="tiers"><span class="tg t-${tierLabel(pl.sho).toLowerCase()}">SHO ${tierLabel(pl.sho)}</span><span class="tg t-${tierLabel(pl.pas).toLowerCase()}">PAS ${tierLabel(pl.pas)}</span></div>` +
+      const c = mkCanvas(104, 104); paintFigure(c, pl, { team: 'blue' }); card.appendChild(c);
+      card.insertAdjacentHTML('beforeend', `<div class="pos">${pl.pos}</div><div class="nm">${pl.name.split(' ').slice(-1)[0]}</div>` + statStack(pl) +
         `<div class="back-face">TURF</div>`);
       const reveal = () => { card.classList.remove('facedown'); card.classList.add('reveal'); label.textContent = 'New player added to your collection'; };
       card.onclick = reveal; wrap.appendChild(card);

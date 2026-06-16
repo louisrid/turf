@@ -106,14 +106,14 @@
     ctx.clearRect(0, 0, W, H);
     // surrounds behind the goals (light)
     ctx.fillStyle = '#e8ebef'; ctx.fillRect(0, 0, W, H);
-    // pitch (white)
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, gridY, W, gridH);
+    // pitch (barely-there green)
+    ctx.fillStyle = '#f3faf5'; ctx.fillRect(0, gridY, W, gridH);
     // grid (bold, clearly visible)
     ctx.strokeStyle = '#a9afb8'; ctx.lineWidth = 1.5;
     for (let c = 0; c <= COLS; c++) line(c * cell, gridY, c * cell, gridY + gridH);
     for (let r = 0; r <= ROWS; r++) line(0, gridY + r * cell, W, gridY + r * cell);
     // halfway + centre
-    ctx.strokeStyle = '#878d96'; ctx.lineWidth = 2; line(0, gridY + gridH / 2, W, gridY + gridH / 2);
+    ctx.strokeStyle = '#a9afb8'; ctx.lineWidth = 1.5; line(0, gridY + gridH / 2, W, gridY + gridH / 2);
     ctx.beginPath(); ctx.arc(W / 2, gridY + gridH / 2, cell * 0.55, 0, Math.PI * 2); ctx.stroke();
 
     drawGoals(gridY, gridH);
@@ -173,8 +173,7 @@
     if (o.reach) for (const sq of o.reach) {
       const p = px(sq.col, sq.row);
       const rgb = o.kind === 'pass' ? '24,28,34' : o.kind === 'longpass' ? '184,134,11' : '47,107,255';
-      ctx.fillStyle = `rgba(${rgb},0.13)`; roundRect(p.x + 2.5, p.y + 2.5, cell - 5, cell - 5, cell * 0.2); ctx.fill();
-      ctx.fillStyle = `rgba(${rgb},0.7)`; ctx.beginPath(); ctx.arc(p.x + cell / 2, p.y + cell / 2, cell * 0.07, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgba(${rgb},0.20)`; ctx.fillRect(p.x + 1, p.y + 1, cell - 2, cell - 2);
     }
     if (o.orders) for (const ord of o.orders) {
       if (!ord.to || !ord.from) continue;
@@ -188,11 +187,7 @@
       ctx.lineTo(tg.x - ah * Math.cos(ang + 0.4), tg.y - ah * Math.sin(ang + 0.4));
       ctx.closePath(); ctx.fill();
     }
-    if (o.sel) {
-      const c = center(o.sel.col, o.sel.row), r = cell * 0.45;
-      ctx.strokeStyle = 'rgba(14,16,20,0.12)'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.stroke();
-      ctx.strokeStyle = 'rgba(47,107,255,0.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(c.x, c.y, r + 3, 0, Math.PI * 2); ctx.stroke();
-    }
+    // (selected player is shown by its highlighted reach squares; no ring)
   }
   function drawPlayer(p) {
     const d = disp.get(p.id) || aToR(p.col, p.row);
