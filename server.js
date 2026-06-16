@@ -19,7 +19,13 @@ const SHOT_GAP_MS = Number(process.env.SHOT_GAP_MS || 2800);
 const GRACE_MS = Number(process.env.GRACE_MS || 90000);   // hold a match this long for reconnect
 
 const app = express();
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: true, lastModified: true, maxAge: 0,
+  setHeaders: (res, p) => {
+    // never let phones/CDNs serve a stale build of the app shell or assets
+    if (/\.(html|js|css)$/.test(p)) res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  }
+}));
 app.get('/health', (_, res) => res.json({ ok: true, backend }));
 
 const server = http.createServer(app);

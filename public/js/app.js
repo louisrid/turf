@@ -1,6 +1,6 @@
 /* TURF client controller. Plain globals, no build step. */
 (function () {
-  const VERSION = 'v0.4.0';
+  const VERSION = 'v0.5.0';
   const $ = (id) => document.getElementById(id);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const cheb = (a, b) => Math.max(Math.abs(a.col - b.col), Math.abs(a.row - b.row));
