@@ -6,7 +6,7 @@ import { WebSocketServer } from 'ws';
 import * as engine from './lib/engine.js';
 import * as bot from './lib/bot.js';
 import { getProfile, saveProfile, createProfile, backend } from './lib/store.js';
-import { makePack, squadAverage, makeSquadNear } from './lib/players.js';
+import { makePack, squadAverage, makeSquadFor } from './lib/players.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -16,6 +16,7 @@ const GOAL_TARGET = Number(process.env.GOAL_TARGET || 3);
 const MAX_TURNS = Number(process.env.MAX_TURNS || 90);
 const RESOLVE_GAP_MS = Number(process.env.RESOLVE_GAP_MS || 1500);
 const SHOT_GAP_MS = Number(process.env.SHOT_GAP_MS || 2800);
+const GRACE_MS = Number(process.env.GRACE_MS || 90000);   // hold a match this long for reconnect
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
@@ -23,6 +24,18 @@ app.get('/health', (_, res) => res.json({ ok: true, backend }));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
+
+// heartbeat: terminate sockets that stop responding (e.g. a backgrounded phone tab),
+// which fires 'close' -> pauseRoom so the match can be resumed on reconnect.
+const HEARTBEAT_MS = 30000;
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) { ws.terminate(); continue; }
+    ws.isAlive = false;
+    try { ws.ping(); } catch {}
+  }
+}, HEARTBEAT_MS);
+wss.on('close', () => clearInterval(heartbeat));
 
 const rooms = new Map();
 const send = (ws, obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
@@ -41,16 +54,21 @@ const validSquad = (p) => p && Array.isArray(p.squad) && p.squad.length === 3;
 // ---- match lifecycle --------------------------------------------------------
 function startMatch(room) {
   const human = room.players[0];
-  const squadA = validSquad(human.profile) ? human.profile.squad : makeSquadNear(78);
+  const squadA = validSquad(human.profile) ? human.profile.squad : makeSquadFor('easy');
   let squadB;
   if (room.bot) squadB = room.bot.squad;
-  else { const b = room.players[1]; squadB = validSquad(b.profile) ? b.profile.squad : makeSquadNear(squadAverage(squadA)); }
+  else { const b = room.players[1]; squadB = validSquad(b.profile) ? b.profile.squad : makeSquadFor('easy'); }
   room.match = engine.createMatch(squadA, squadB);
   room.match.easyBotTeam = (room.bot && room.bot.diff === 'easy') ? room.bot.team : -1;
+  // who starts with the ball: easy -> human always; hard -> bot 60% of the time; PvP -> coin flip
+  let startTeam = 0;
+  if (room.bot) startTeam = room.bot.diff === 'hard' ? (Math.random() < 0.6 ? room.bot.team : 0) : 0;
+  else startTeam = Math.random() < 0.5 ? 0 : 1;
+  engine.kickoff(room.match, startTeam);
   room.orders = [null, null];
   room.over = false;
-  room.planMs = room.bot ? Math.min(PLANNING_MS, 60000) : PLANNING_MS;
-  room.decMs = room.bot ? Math.min(DECISION_MS, 18000) : DECISION_MS;
+  room.planMs = room.bot ? 600000 : PLANNING_MS;   // solo: no clock pressure (no random auto-play on tab-out)
+  room.decMs = room.bot ? 120000 : DECISION_MS;   // solo: long shoot window, no surprise auto-pick
   for (const p of room.players)
     send(p.ws, { t: 'matchStart', you: p.team, snapshot: engine.snapshot(room.match),
                  vsBot: !!room.bot, difficulty: room.bot ? room.bot.diff : null, goalTarget: GOAL_TARGET });
@@ -78,7 +96,7 @@ function maybeResolve(room) { if (room.orders[0] && room.orders[1]) doResolve(ro
 function doResolve(room) {
   clearTimers(room);
   const m = room.match;
-  if (m.phase !== 'PLANNING' || room.over) return;
+  if (m.phase !== 'PLANNING' || room.over || room.paused) return;
   const { events, pending } = engine.resolveOrders(m, room.orders[0] || {}, room.orders[1] || {});
 
   if (pending && pending.kind === 'shoot') {
@@ -144,7 +162,7 @@ async function endMatch(room, winnerTeam) {
       p.profile.goalsAgainst = (p.profile.goalsAgainst || 0) + room.match.score[opp];
       if (won) {
         p.profile.wins = (p.profile.wins || 0) + 1;
-        pack = makePack(squadAverage(p.profile.squad || []));
+        pack = makePack(room.bot ? room.bot.diff : 'hard');
         p.profile.packs = (p.profile.packs || 0) + 1;
         p.profile.collection = (p.profile.collection || []).concat(pack);
       } else if (!draw) {
@@ -158,11 +176,12 @@ async function endMatch(room, winnerTeam) {
   }
 }
 
-async function leaveRoom(ws) {
+// explicit quit (pressed Leave): forfeit a live match, then drop the room
+async function forfeitLeave(ws) {
   for (const [code, room] of rooms) {
     const idx = room.players.findIndex(p => p.ws === ws);
     if (idx < 0) continue;
-    clearTimers(room);
+    clearTimers(room); if (room.graceTimer) { clearTimeout(room.graceTimer); room.graceTimer = null; }
     const leaver = room.players[idx];
     const opp = room.players.find(p => p.ws !== ws);
     if (room.match && !room.over) {
@@ -174,31 +193,100 @@ async function leaveRoom(ws) {
         leaver.profile.goalsFor = (leaver.profile.goalsFor || 0) + m.score[leaver.team];
         leaver.profile.goalsAgainst = (leaver.profile.goalsAgainst || 0) + m.score[1 - leaver.team];
         try { await saveProfile(leaver.profile); } catch {}
-        send(leaver.ws, { t: 'profile', profile: leaver.profile });   // refresh the leaver's home record
+        send(leaver.ws, { t: 'profile', profile: leaver.profile });
       }
-      if (opp) {
+      if (opp && opp.ws) {
         if (opp.profile && opp.profile.token) {
           opp.profile.matches = (opp.profile.matches || 0) + 1;
           opp.profile.wins = (opp.profile.wins || 0) + 1;
           opp.profile.goalsFor = (opp.profile.goalsFor || 0) + m.score[opp.team];
           opp.profile.goalsAgainst = (opp.profile.goalsAgainst || 0) + m.score[1 - opp.team];
-          const pack = makePack(squadAverage(opp.profile.squad || []));
+          const pack = makePack('hard');
           opp.profile.packs = (opp.profile.packs || 0) + 1;
           opp.profile.collection = (opp.profile.collection || []).concat(pack);
           try { await saveProfile(opp.profile); } catch {}
           send(opp.ws, { t: 'matchEnd', winnerTeam: opp.team, won: true, draw: false, pack, score: m.score, profile: opp.profile, vsBot: false, byForfeit: true });
         } else send(opp.ws, { t: 'oppLeft' });
       }
-    } else if (opp) {
-      send(opp.ws, { t: 'oppLeft' });
-    }
+    } else if (opp && opp.ws) send(opp.ws, { t: 'oppLeft' });
+    if (ws.roomCode === code) ws.roomCode = null;
     rooms.delete(code);
+    return;
+  }
+  ws.roomCode = null;
+}
+
+// socket dropped (tab closed / network): pause a live match so it can be resumed
+function pauseRoom(ws) {
+  for (const [code, room] of rooms) {
+    const slot = room.players.find(p => p.ws === ws);
+    if (!slot) continue;
+    clearTimers(room);
+    if (!room.match || room.over) {
+      const opp = room.players.find(p => p.ws && p.ws !== ws);
+      if (opp) send(opp.ws, { t: 'oppLeft' });
+      if (!room.bot && room.players.every(p => !p.ws || p.ws === ws)) rooms.delete(code);
+      else if (room.bot) rooms.delete(code);
+      return;
+    }
+    room.paused = true;
+    slot.ws = null;                       // keep slot + token for reconnect
+    const opp = room.players.find(p => p !== slot && p.ws);
+    if (opp) send(opp.ws, { t: 'oppDropped' });
+    room.graceTimer = setTimeout(() => expirePause(room, slot), GRACE_MS);
     return;
   }
 }
 
+async function expirePause(room, slot) {
+  if (!room.paused || room.over) return;
+  room.over = true;
+  const opp = room.players.find(p => p !== slot && p.ws);
+  if (!room.bot && opp && opp.profile && opp.profile.token) {
+    const m = room.match;
+    opp.profile.matches = (opp.profile.matches || 0) + 1;
+    opp.profile.wins = (opp.profile.wins || 0) + 1;
+    opp.profile.goalsFor = (opp.profile.goalsFor || 0) + m.score[opp.team];
+    opp.profile.goalsAgainst = (opp.profile.goalsAgainst || 0) + m.score[1 - opp.team];
+    const pack = makePack('hard');
+    opp.profile.packs = (opp.profile.packs || 0) + 1;
+    opp.profile.collection = (opp.profile.collection || []).concat(pack);
+    try { await saveProfile(opp.profile); } catch {}
+    send(opp.ws, { t: 'matchEnd', winnerTeam: opp.team, won: true, draw: false, pack, score: m.score, profile: opp.profile, vsBot: false, byForfeit: true });
+  }
+  rooms.delete(room.code);
+}
+
+// reconnect: if this token owns a paused match, rebind and resume
+function resumeRoom(ws) {
+  if (!ws.profile || !ws.profile.token) return false;
+  for (const [code, room] of rooms) {
+    if (!room.paused) continue;
+    const slot = room.players.find(p => !p.ws && p.profile && p.profile.token === ws.profile.token);
+    if (!slot) continue;
+    slot.ws = ws; slot.profile = ws.profile; ws.roomCode = code;
+    const allHere = room.bot || room.players.every(p => p.ws);
+    if (allHere) {
+      room.paused = false;
+      if (room.graceTimer) { clearTimeout(room.graceTimer); room.graceTimer = null; }
+      const m = room.match; m.pending = null; m.phase = 'PLANNING';
+      send(ws, { t: 'matchStart', you: slot.team, snapshot: engine.snapshot(m), vsBot: !!room.bot, difficulty: room.bot ? room.bot.diff : null, goalTarget: GOAL_TARGET, resumed: true });
+      const opp = room.players.find(p => p !== slot && p.ws);
+      if (opp) send(opp.ws, { t: 'oppBack' });
+      beginPlanning(room);
+    } else {
+      send(ws, { t: 'matchStart', you: slot.team, snapshot: engine.snapshot(room.match), vsBot: false, goalTarget: GOAL_TARGET, resumed: true });
+      send(ws, { t: 'oppDropped' });
+    }
+    return true;
+  }
+  return false;
+}
+
 // ---- socket handling --------------------------------------------------------
 wss.on('connection', (ws) => {
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
   ws.on('message', async (raw) => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }
     try {
@@ -213,6 +301,7 @@ wss.on('connection', (ws) => {
           const profile = await getProfile(String(msg.token || '').trim());
           if (!profile) return send(ws, { t: 'error', msg: 'No team found for that code.' });
           ws.profile = profile;
+          if (resumeRoom(ws)) return;
           send(ws, { t: 'profile', profile });
           break;
         }
@@ -230,11 +319,9 @@ wss.on('connection', (ws) => {
         case 'soloMatch': {
           if (!ws.profile) return send(ws, { t: 'error', msg: 'Log in first.' });
           const diff = msg.difficulty === 'hard' ? 'hard' : 'easy';
-          const myAvg = squadAverage(ws.profile.squad || []);
-          const target = diff === 'hard' ? Math.max(83, myAvg + 2) : Math.min(76, myAvg - 3);
           const code = roomCode();
           const room = { code, players: [{ ws, profile: ws.profile, team: 0 }],
-                         bot: { team: 1, diff, squad: makeSquadNear(target) }, match: null, timer: null };
+                         bot: { team: 1, diff, squad: makeSquadFor(diff) }, match: null, timer: null };
           rooms.set(code, room); ws.roomCode = code;
           startMatch(room);
           break;
@@ -259,14 +346,14 @@ wss.on('connection', (ws) => {
           break;
         }
         case 'orders': {
-          const room = rooms.get(ws.roomCode); if (!room || room.over) return;
+          const room = rooms.get(ws.roomCode); if (!room || room.over || room.paused) return;
           const me = room.players.find(p => p.ws === ws); if (!me) return;
           room.orders[me.team] = msg.orders || {};
           maybeResolve(room);
           break;
         }
         case 'shootSel': {
-          const room = rooms.get(ws.roomCode); if (!room) return;
+          const room = rooms.get(ws.roomCode); if (!room || room.paused) return;
           const me = room.players.find(p => p.ws === ws); if (!me) return;
           const sh = room.match.players.find(p => p.id === room.match.pending?.shooterId);
           if (!sh) return;
@@ -279,14 +366,14 @@ wss.on('connection', (ws) => {
           if (room && (room.players.length === 2 || room.bot)) startMatch(room);
           break;
         }
-        case 'leave': leaveRoom(ws); break;
+        case 'leave': forfeitLeave(ws); break;
       }
     } catch (e) {
       console.error('handler error', e);
       send(ws, { t: 'error', msg: 'Server error.' });
     }
   });
-  ws.on('close', () => leaveRoom(ws));
+  ws.on('close', () => pauseRoom(ws));
 });
 
 server.listen(PORT, () => console.log(`TURF on :${PORT} (store: ${backend})`));

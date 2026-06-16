@@ -2,77 +2,88 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<meta name="theme-color" content="#ffffff" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0b0b0f" />
 <title>TURF</title>
 <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body>
 <div id="app">
 
-  <!-- LOGIN -->
-  <section id="screen-login" class="screen active">
-    <div class="brand">TURF</div>
-    <div class="tag">3-a-side. Move at once. Read the bluff.</div>
-    <button id="btn-new" class="primary">New team</button>
-    <div class="or">or log in with your code</div>
-    <div class="row">
-      <input id="login-code" inputmode="numeric" maxlength="4" placeholder="123" />
-      <button id="btn-login">Go</button>
-    </div>
-    <button id="btn-tut-login" class="ghost">How to play</button>
-    <div id="login-err" class="err"></div>
+  <!-- BOOT -->
+  <section id="screen-boot" class="screen active center">
+    <div class="brand xl glow">TURF</div>
+    <div class="spinner big"></div>
+    <div class="sub">Loading your team…</div>
   </section>
 
   <!-- HOME -->
   <section id="screen-home" class="screen">
-    <div class="brand sm">TURF</div>
-    <div class="code-card">
-      <div class="label">Your code</div>
-      <div id="home-token" class="token">—</div>
-      <div class="sub">Your login on any device. Keep it.</div>
+    <header class="home-top">
+      <div class="brand glow">TURF</div>
+      <div class="home-sub">Read the bluff. Score the goals.</div>
+    </header>
+
+    <div class="menu">
+      <button id="btn-solo" class="tile blue"><span class="t-ico">⚽</span><span class="t-lab">Play Solo</span><span class="t-cap">vs the bot</span></button>
+      <button id="btn-online" class="tile red"><span class="t-ico">🆚</span><span class="t-lab">Play 1v1</span><span class="t-cap">a friend</span></button>
+      <button id="btn-collection" class="tile dark"><span class="t-ico">🃏</span><span class="t-lab">Collection</span><span class="t-cap" id="tile-col-cap">your cards</span></button>
+      <button id="btn-rules" class="tile dark"><span class="t-ico">📖</span><span class="t-lab">Rules</span><span class="t-cap">how to play</span></button>
     </div>
 
-    <div class="section-label">Play</div>
-    <div class="play-grid">
-      <button id="btn-easy" class="primary play">Vs Easy bot</button>
-      <button id="btn-hard" class="primary play red">Vs Hard bot</button>
-    </div>
-    <button id="btn-create" class="ghost">Play a friend (create room)</button>
-    <div class="row">
-      <input id="join-code" maxlength="4" placeholder="FRIEND CODE" />
-      <button id="btn-join">Join</button>
+    <div class="panel record-panel">
+      <div class="panel-row"><span class="panel-title">Your record</span><span id="home-wr" class="wr">—</span></div>
+      <div id="home-record" class="record-line"></div>
     </div>
 
-    <div class="section-label">Your record</div>
-    <div id="home-record" class="record-grid"></div>
-
-    <div class="section-label">Squad <button id="btn-edit" class="link">edit</button></div>
-    <div id="home-squad" class="squad-strip"></div>
-
-    <div class="hr"></div>
-    <div class="play-grid">
-      <button id="btn-collection" class="ghost">Collection</button>
-      <button id="btn-tut" class="ghost">How to play</button>
+    <div class="panel squad-panel">
+      <div class="panel-row"><span class="panel-title">Your squad</span><button id="btn-edit" class="link">Edit ›</button></div>
+      <div id="home-squad" class="squad-strip"></div>
     </div>
-    <div id="home-err" class="err"></div>
+
+    <footer class="home-foot">
+      <span id="home-code" class="code-pill">—</span>
+      <button id="btn-usecode" class="link">Use a code</button>
+      <span id="home-ver" class="ver"></span>
+    </footer>
+  </section>
+
+  <!-- ONLINE 1v1 -->
+  <section id="screen-online" class="screen">
+    <div class="head-row"><button class="back nav-home">‹</button><h2>Play 1v1</h2></div>
+    <div class="panel">
+      <p class="hint">Create a room and share the code, or join a friend's.</p>
+      <button id="btn-create" class="primary big">Create a room</button>
+      <div class="or">or</div>
+      <div class="row">
+        <input id="join-code" maxlength="4" placeholder="CODE" />
+        <button id="btn-join" class="primary">Join</button>
+      </div>
+      <div id="online-err" class="err"></div>
+    </div>
+    <div id="lobby-box" class="panel center hidden">
+      <div class="label">Share this code</div>
+      <div id="lobby-code" class="token big">—</div>
+      <div class="spinner"></div>
+      <div class="sub">Waiting for your friend…</div>
+      <button id="lobby-cancel" class="ghost">Cancel</button>
+    </div>
   </section>
 
   <!-- SQUAD -->
   <section id="screen-squad" class="screen">
-    <div class="head-row"><button id="sq-back" class="back">‹</button><h2>Your squad</h2></div>
-    <p class="hint">Pick 3: one keeper and two outfielders.</p>
+    <div class="head-row"><button class="back nav-home">‹</button><h2>Your squad</h2></div>
+    <p class="hint">Pick 3: one keeper, two outfielders. Only <b>SHO</b> matters.</p>
     <div id="sq-active" class="sq-grid"></div>
-    <div class="hr"></div>
-    <h3>Owned players</h3>
+    <div class="panel-title mt">Owned players</div>
     <div id="sq-pool" class="sq-pool"></div>
     <div id="sq-err" class="err"></div>
-    <button id="sq-save" class="primary">Save squad</button>
+    <button id="sq-save" class="primary big sticky">Save squad</button>
   </section>
 
   <!-- COLLECTION -->
   <section id="screen-collection" class="screen">
-    <div class="head-row"><button id="col-back" class="back">‹</button><h2>Collection</h2></div>
+    <div class="head-row"><button class="back nav-home">‹</button><h2>Collection</h2></div>
     <div id="col-count" class="hint"></div>
     <div class="col-sort">
       <button class="chip on" data-sort="ovr">Rating</button>
@@ -82,40 +93,26 @@
     <div id="col-grid" class="col-grid"></div>
   </section>
 
-  <!-- LOBBY -->
-  <section id="screen-lobby" class="screen center">
-    <div class="brand sm">Room ready</div>
-    <div class="code-card big">
-      <div class="label">Share this code</div>
-      <div id="lobby-code" class="token big">—</div>
-    </div>
-    <div class="spinner"></div>
-    <div class="sub">Waiting for your friend to join…</div>
-    <button id="lobby-cancel" class="ghost">Cancel</button>
-  </section>
-
   <!-- MATCH -->
   <section id="screen-match" class="screen match">
-    <div class="hud">
-      <div class="hud-side"><span id="hud-you" class="badge">YOU</span></div>
-      <div class="hud-score"><span id="hud-s0">0</span><span class="dash">–</span><span id="hud-s1">0</span></div>
-      <div class="hud-side right"><span id="hud-opp" class="badge red">OPP</span></div>
-    </div>
-    <div id="hud-target" class="target"></div>
-    <div class="hud2">
-      <div id="hud-phase" class="phase">PLAN</div>
-      <div class="timerbar"><div id="timerfill"></div></div>
-      <div id="hud-poss" class="poss"></div>
-    </div>
+    <header class="mhud">
+      <div class="mhud-team"><span id="hud-you" class="badge">YOU</span></div>
+      <div class="mhud-score"><span id="hud-s0">0</span><i>–</i><span id="hud-s1">0</span></div>
+      <div class="mhud-team right"><span id="hud-opp" class="badge red">OPP</span></div>
+    </header>
+    <div id="hud-poss" class="poss-bar"></div>
     <div id="pitch-wrap" class="pitch-wrap"><canvas id="pitch"></canvas><div id="ab-pop" class="ab-pop"></div></div>
-    <button id="btn-submit" class="primary submit">Submit orders</button>
-    <div class="match-foot">
-      <div id="match-msg" class="match-msg"></div>
-      <button id="btn-quit" class="link quit">Leave match</button>
+    <div class="match-actions">
+      <button id="btn-submit" class="primary submit">Submit Moves!</button>
     </div>
+    <div class="match-foot">
+      <span id="hud-target" class="foot-target"></span>
+      <button id="btn-quit" class="link quit">Leave</button>
+    </div>
+    <div id="match-msg" class="match-msg"></div>
   </section>
 
-  <!-- SHOOT OVERLAY: 1 v 1 goalmouth -->
+  <!-- SHOOT OVERLAY: 1 v 1 -->
   <div id="ov-shoot" class="overlay">
     <div class="ov-card shootcard">
       <div id="shoot-title" class="ov-title">Shot</div>
@@ -131,19 +128,41 @@
     </div>
   </div>
 
-  <!-- END OVERLAY -->
+  <!-- DIFFICULTY -->
+  <div id="ov-diff" class="overlay">
+    <div class="ov-card">
+      <div class="ov-title">Play Solo</div>
+      <div class="ov-prompt">Pick your opponent</div>
+      <div class="diff-row">
+        <button id="diff-easy" class="primary big">Easy bot</button>
+        <button id="diff-hard" class="primary big red">Hard bot</button>
+      </div>
+      <button id="diff-cancel" class="link">Cancel</button>
+    </div>
+  </div>
+
+  <!-- END -->
   <div id="ov-end" class="overlay">
     <div class="ov-card">
       <div id="end-title" class="ov-title big">—</div>
       <div id="end-score" class="end-score"></div>
       <div id="end-pack-label" class="pack-label"></div>
       <div id="end-pack" class="pack-cards"></div>
-      <button id="end-rematch" class="primary">Rematch</button>
-      <button id="end-home" class="ghost">Back to home</button>
+      <button id="end-rematch" class="primary big">Rematch</button>
+      <button id="end-home" class="ghost">Home</button>
     </div>
   </div>
 
-  <!-- TUTORIAL OVERLAY -->
+  <!-- RECONNECT -->
+  <div id="ov-reco" class="overlay blurbg">
+    <div class="ov-card center">
+      <div class="spinner big"></div>
+      <div class="ov-title">Reconnecting…</div>
+      <div class="sub">Hang tight, picking the match back up.</div>
+    </div>
+  </div>
+
+  <!-- RULES / TUTORIAL -->
   <div id="ov-tut" class="overlay">
     <div class="ov-card tut">
       <div id="tut-step" class="tut-step"></div>
@@ -153,7 +172,18 @@
         <button id="tut-back" class="ghost">Back</button>
         <button id="tut-next" class="primary">Next</button>
       </div>
-      <button id="tut-skip" class="link">Skip</button>
+      <button id="tut-skip" class="link">Close</button>
+    </div>
+  </div>
+
+  <!-- CODE PROMPT -->
+  <div id="ov-code" class="overlay">
+    <div class="ov-card">
+      <div class="ov-title">Use a code</div>
+      <div class="ov-prompt">Enter a team code to load it on this device.</div>
+      <div class="row"><input id="code-input" maxlength="4" placeholder="CODE" /><button id="code-go" class="primary">Load</button></div>
+      <div id="code-err" class="err"></div>
+      <button id="code-cancel" class="link">Cancel</button>
     </div>
   </div>
 

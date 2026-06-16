@@ -1,190 +1,160 @@
 /* TURF client controller. Plain globals, no build step. */
 (function () {
+  const VERSION = 'v0.4.0';
   const $ = (id) => document.getElementById(id);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const cheb = (a, b) => Math.max(Math.abs(a.col - b.col), Math.abs(a.row - b.row));
   const isCarrier = (p) => St.snap && St.snap.ball.carrier === p.id;
-  const moveAllow = (p) => (p.pos === 'GK' ? 1 : (p.recover > 0 ? 1 : (isCarrier(p) ? 2 : 3))); // carry 2, off-ball 3
+  const moveAllow = (p) => (p.pos === 'GK' ? 1 : (isCarrier(p) ? 2 : 3));
   const shortReach = () => (St.snap && St.snap.passShort) || 3;
   const longReach = () => (St.snap && St.snap.passLong) || 6;
   const shootRow = (team) => (team === 0 ? 0 : (St.snap.rows - 1));
-  const canShoot = (p) => p.pos !== 'GK' && (p.team === 0 ? p.row <= 1 : p.row >= St.snap.rows - 2); // last two rows
+  const canShoot = (p) => p.pos !== 'GK' && (p.team === 0 ? p.row <= 1 : p.row >= St.snap.rows - 2);
   const oppKeeperOut = () => !!(St.snap && St.snap.keeperOut && St.snap.keeperOut[1 - St.you]);
   const theCarrier = () => St.snap && St.snap.ball.carrier ? St.snap.players.find(p => p.id === St.snap.ball.carrier) : null;
-
-  const St = {
-    ws: null, token: null, profile: null, you: 0, snap: null,
-    orders: {}, sel: null, action: null, submitted: false,
-    deadline: 0, timer: null, phase: null, inited: false, roomCode: null,
-  };
-
-  // ---- screens / overlays ---------------------------------------------------
-  function show(id) {
-    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    $(id).classList.add('active');
+  const tierLabel = (v) => v >= 88 ? 'SUPERB' : v >= 78 ? 'GOOD' : 'BAD';
+  // mirrors engine: expected goal % (keeper guess unknown), no easy penalty for the human
+  function shootPct(p) {
+    const rowOff = Math.abs(p.row - shootRow(p.team));
+    const edge = (p.col === 0 || p.col === St.snap.cols - 1) ? 1 : 0;
+    const pen = 0.12 * rowOff + 0.18 * edge;
+    const pOpen = clamp(0.55 + (p.sho - 72) * 0.018 - pen, 0.30, 0.97);
+    const pCov = clamp((p.sho - 72) * 0.012 - pen * 0.5, 0, 0.42);
+    return Math.round(100 * (0.5 * pOpen + 0.5 * pCov));
   }
-  const ov = (id, on) => $(id).classList.toggle('show', on);
+  const longPct = (pas) => Math.round(100 * clamp(0.45 + (pas - 72) * 0.022, 0.25, 0.95));
 
-  // ---- sprite helpers -------------------------------------------------------
+  const St = { ws: null, token: null, profile: null, you: 0, snap: null, orders: {}, sel: null, action: null, submitted: false, decTimer: null, inited: false, roomCode: null, inMatch: false, reco: 0 };
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+
+  function show(id) { document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); $(id).classList.add('active'); }
+  const ov = (id, on) => $(id).classList.toggle('show', on);
+  const hideAllOverlays = () => ['ov-reco', 'ov-end', 'ov-shoot', 'ov-diff', 'ov-code'].forEach(i => ov(i, false));
+  const matchMsg = (t) => { $('match-msg').textContent = t || ''; };
+  function flashErr(msg) { const el = document.querySelector('.screen.active .err'); if (el) { el.textContent = msg; setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 3000); } }
+
   function paintFigure(canvas, p, opt) {
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.imageSmoothingEnabled = false;
+    const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.imageSmoothingEnabled = false;
     const S = window.Sprites, U = canvas.width / 18;
     const ox = (canvas.width - 16 * U) / 2, oy = (canvas.height - 22 * U) / 2;
-    S.drawFigure(ctx, ox, oy, U, {
-      team: opt.team || 'blue', skin: p.look.skin, hair: p.look.hair, hairColor: p.look.hairColor,
-      view: opt.view || 'front', role: p.pos === 'GK' ? 'gk' : 'out', number: opt.number,
-    });
+    S.drawFigure(ctx, ox, oy, U, { team: opt.team || 'blue', skin: p.look.skin, hair: p.look.hair, hairColor: p.look.hairColor, view: opt.view || 'front', role: p.pos === 'GK' ? 'gk' : 'out' });
   }
-  function mkCanvas(w, h, cls) { const c = document.createElement('canvas'); c.width = w; c.height = h; if (cls) c.className = cls; return c; }
+  function mkCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+  function rarity(ovr) { return ovr >= 92 ? 'icon' : ovr >= 87 ? 'gold' : ovr >= 82 ? 'silver' : 'bronze'; }
 
-  // ---- networking -----------------------------------------------------------
+  // ---- networking + reconnect ----------------------------------------------
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     St.ws = new WebSocket(`${proto}://${location.host}`);
-    St.ws.onmessage = (e) => onMsg(JSON.parse(e.data));
-    St.ws.onclose = () => { setTimeout(connect, 1200); };
+    St.ws.onopen = () => { const tok = lsGet('turf_token'); if (tok) { St.token = tok; sendWs({ t: 'login', token: tok }); } else sendWs({ t: 'newAccount' }); };
+    St.ws.onmessage = (e) => { let m; try { m = JSON.parse(e.data); } catch { return; } onMsg(m); };
+    St.ws.onclose = () => onDrop();
+    St.ws.onerror = () => {};
+  }
+  function onDrop() {
+    if (St.inMatch) {
+      ov('ov-reco', true); St.reco++;
+      if (St.reco > 12) { St.reco = 0; St.inMatch = false; ov('ov-reco', false); goHome(); return; }
+      setTimeout(connect, Math.min(700 * St.reco, 3500));
+    } else setTimeout(connect, 1200);
   }
   const sendWs = (o) => { if (St.ws && St.ws.readyState === 1) St.ws.send(JSON.stringify(o)); };
-
-  function onMsg(m) {
-    try { dispatch(m); } catch (e) { console.error('onMsg', m && m.t, e); }
-  }
+  function onMsg(m) { try { dispatch(m); } catch (e) { console.error('onMsg', m && m.t, e); } }
   function dispatch(m) {
     switch (m.t) {
-      case 'token': St.token = m.token; St.profile = m.profile; goHome(); break;
-      case 'profile': St.profile = m.profile; if (St.token == null) St.token = m.profile.token; goHome(); break;
-      case 'roomCreated': St.roomCode = m.code; $('lobby-code').textContent = m.code; show('screen-lobby'); break;
-      case 'matchStart': startMatch(m); break;
+      case 'token': St.token = m.token; lsSet('turf_token', m.token); St.profile = m.profile; St.reco = 0; goHome(); break;
+      case 'profile': St.profile = m.profile; if (!St.token) St.token = m.profile.token; lsSet('turf_token', St.token); St.reco = 0; goHome(); break;
+      case 'roomCreated': St.roomCode = m.code; $('lobby-code').textContent = m.code; $('lobby-box').classList.remove('hidden'); break;
+      case 'matchStart': St.reco = 0; ov('ov-reco', false); startMatch(m); break;
       case 'turn': onTurn(m); break;
       case 'resolve': onResolve(m); break;
       case 'shoot': onShoot(m); break;
       case 'matchEnd': onEnd(m); break;
-      case 'oppLeft': $('match-msg').textContent = 'Opponent left.'; setTimeout(goHome, 1200); break;
-      case 'error': flashErr(m.msg); break;
+      case 'oppDropped': matchMsg('Opponent reconnecting…'); break;
+      case 'oppBack': matchMsg(''); break;
+      case 'oppLeft': matchMsg('Opponent left.'); setTimeout(goHome, 1300); break;
+      case 'error':
+        if ($('ov-code').classList.contains('show')) $('code-err').textContent = m.msg;
+        else if (!St.profile) { lsSet('turf_token', ''); sendWs({ t: 'newAccount' }); }  // stored token no longer exists -> start fresh
+        else flashErr(m.msg);
+        break;
     }
   }
-  function flashErr(msg) {
-    const el = document.querySelector('.screen.active .err');
-    if (el) { el.textContent = msg; setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 3000); }
-  }
 
-  // ---- login / home ---------------------------------------------------------
-  $('btn-new').onclick = () => sendWs({ t: 'newAccount' });
-  $('btn-login').onclick = () => {
-    const code = $('login-code').value.trim();
-    if (code) { St.token = code; sendWs({ t: 'login', token: code }); }
-  };
-  $('login-code').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-login').click(); });
-
+  // ---- home -----------------------------------------------------------------
   function goHome() {
-    $('home-token').textContent = St.token;
-    const p = St.profile;
+    St.inMatch = false; clearTimeout(St.decTimer); hideAllOverlays();
+    const p = St.profile || {};
     const wins = p.wins || 0, losses = p.losses || 0, draws = p.draws || 0;
-    const m = p.matches || (wins + losses + draws);
-    const wr = m ? Math.round(wins / m * 100) : 0;
-    const stat = (v, k) => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div></div>`;
-    $('home-record').innerHTML =
-      stat(wins, 'Wins') + stat(draws, 'Draws') + stat(losses, 'Losses') +
-      stat(wr + '%', 'Win rate') + stat(p.goalsFor || 0, 'Goals') + stat(p.goalsAgainst || 0, 'Conceded');
+    const total = p.matches || (wins + losses + draws);
+    $('home-wr').textContent = total ? Math.round(wins / total * 100) + '% win rate' : 'No games yet';
+    const pill = (v, k) => `<div class="pill"><b>${v}</b><span>${k}</span></div>`;
+    $('home-record').innerHTML = pill(wins, 'WON') + pill(draws, 'DREW') + pill(losses, 'LOST') + pill(p.goalsFor || 0, 'GOALS');
     const strip = $('home-squad'); strip.innerHTML = '';
     (p.squad || []).forEach(pl => {
       const d = document.createElement('div'); d.className = 'mini';
-      const c = mkCanvas(40, 56); paintFigure(c, pl, { team: 'blue' });
-      d.appendChild(c);
-      d.insertAdjacentHTML('beforeend',
-        `<div class="ov">${pl.ovr}</div><div class="nm">${pl.name.split(' ').slice(-1)[0]}</div>`);
+      const c = mkCanvas(46, 60); paintFigure(c, pl, { team: 'blue' }); d.appendChild(c);
+      d.insertAdjacentHTML('beforeend', `<div class="ov">${pl.ovr}</div><div class="nm">${pl.name.split(' ').slice(-1)[0]}</div>`);
       strip.appendChild(d);
     });
-    show('screen-home');
-    maybeFirstTutorial();
+    $('home-code').textContent = St.token || '----';
+    $('home-ver').textContent = VERSION;
+    $('tile-col-cap').textContent = `${allOwned().length} cards`;
+    show('screen-home'); maybeFirstTutorial();
   }
-
+  $('btn-solo').onclick = () => ov('ov-diff', true);
+  $('diff-easy').onclick = () => { ov('ov-diff', false); sendWs({ t: 'soloMatch', difficulty: 'easy' }); };
+  $('diff-hard').onclick = () => { ov('ov-diff', false); sendWs({ t: 'soloMatch', difficulty: 'hard' }); };
+  $('diff-cancel').onclick = () => ov('ov-diff', false);
+  $('btn-online').onclick = () => { $('lobby-box').classList.add('hidden'); $('online-err').textContent = ''; show('screen-online'); };
+  $('btn-collection').onclick = () => { renderCollection(); show('screen-collection'); };
+  $('btn-rules').onclick = () => startTutorial(false);
+  $('btn-edit').onclick = openSquad;
+  document.querySelectorAll('.nav-home').forEach(b => b.onclick = () => { sendWs({ t: 'leave' }); goHome(); });
+  $('btn-usecode').onclick = () => { $('code-err').textContent = ''; $('code-input').value = ''; ov('ov-code', true); };
+  $('code-cancel').onclick = () => ov('ov-code', false);
+  $('code-go').onclick = () => { const c = $('code-input').value.trim(); if (c) { lsSet('turf_token', c); St.token = c; sendWs({ t: 'login', token: c }); ov('ov-code', false); } };
   $('btn-create').onclick = () => sendWs({ t: 'createRoom' });
-  $('btn-join').onclick = () => {
-    const code = $('join-code').value.trim().toUpperCase();
-    if (code) sendWs({ t: 'joinRoom', code });
-  };
-  $('btn-easy').onclick = () => sendWs({ t: 'soloMatch', difficulty: 'easy' });
-  $('btn-hard').onclick = () => sendWs({ t: 'soloMatch', difficulty: 'hard' });
-  $('btn-collection').onclick = openCollection;
-  $('btn-tut').onclick = () => startTutorial(false);
-  $('btn-tut-login').onclick = () => startTutorial(false);
+  $('btn-join').onclick = () => { const c = $('join-code').value.trim().toUpperCase(); if (c) sendWs({ t: 'joinRoom', code: c }); };
   $('lobby-cancel').onclick = () => { sendWs({ t: 'leave' }); goHome(); };
 
   // ---- squad editor ---------------------------------------------------------
   let editActive = [];
-  $('btn-edit').onclick = openSquad;
-  $('sq-back').onclick = goHome;
-  function openSquad() {
-    editActive = (St.profile.squad || []).map(p => p.id);
-    renderSquad();
-    show('screen-squad');
-  }
-  function allOwned() {
-    const map = new Map();
-    [...(St.profile.squad || []), ...(St.profile.collection || [])].forEach(p => map.set(p.id, p));
-    return [...map.values()];
-  }
+  function openSquad() { editActive = (St.profile.squad || []).map(p => p.id); renderSquad(); show('screen-squad'); }
+  function allOwned() { const map = new Map(); [...((St.profile && St.profile.squad) || []), ...((St.profile && St.profile.collection) || [])].forEach(p => map.set(p.id, p)); return [...map.values()]; }
   function renderSquad() {
     const owned = allOwned();
     const active = $('sq-active'); active.innerHTML = '';
-    editActive.forEach(id => {
-      const p = owned.find(x => x.id === id); if (!p) return;
-      active.appendChild(playerCard(p, true));
-    });
+    editActive.forEach(id => { const p = owned.find(x => x.id === id); if (p) active.appendChild(playerCard(p)); });
     const pool = $('sq-pool'); pool.innerHTML = '';
-    owned.forEach(p => {
-      const inSquad = editActive.includes(p.id);
-      const card = playerCard(p, false);
-      if (inSquad) card.classList.add('on');
-      card.onclick = () => toggleSquad(p);
-      pool.appendChild(card);
-    });
+    owned.forEach(p => { const card = playerCard(p); if (editActive.includes(p.id)) card.classList.add('on'); card.onclick = () => toggleSquad(p); pool.appendChild(card); });
     const gkCount = editActive.map(id => owned.find(x => x.id === id)).filter(p => p && p.pos === 'GK').length;
-    $('sq-err').textContent = editActive.length !== 3 ? `Pick ${3 - editActive.length} more` :
-      gkCount !== 1 ? 'Squad needs exactly one keeper' : '';
+    $('sq-err').textContent = editActive.length !== 3 ? `Pick ${3 - editActive.length} more` : gkCount !== 1 ? 'Squad needs exactly one keeper' : '';
   }
-  function toggleSquad(p) {
-    if (editActive.includes(p.id)) editActive = editActive.filter(x => x !== p.id);
-    else if (editActive.length < 3) editActive.push(p.id);
-    renderSquad();
-  }
-  function playerCard(p, mini) {
-    const owned = allOwned();
-    const card = document.createElement('div'); card.className = 'card';
-    const c = mkCanvas(54, 74); paintFigure(c, p, { team: 'blue', number: undefined });
-    card.appendChild(c);
-    card.insertAdjacentHTML('beforeend',
-      `<div class="ovr">${p.ovr}</div><div class="pos">${p.pos}</div>` +
-      `<div class="nm">${p.name}</div>` +
-      `<div class="meta"><span>${p.pos}</span><span>SHO ${p.sho}</span></div>`);
+  function toggleSquad(p) { if (editActive.includes(p.id)) editActive = editActive.filter(x => x !== p.id); else if (editActive.length < 3) editActive.push(p.id); renderSquad(); }
+  function statLine(p) { return `<div class="meta"><span>SHO ${tierLabel(p.sho)}</span><span>PAS ${tierLabel(p.pas)}</span></div>`; }
+  function playerCard(p) {
+    const card = document.createElement('div'); card.className = 'card r-' + rarity(p.ovr);
+    const c = mkCanvas(56, 74); paintFigure(c, p, { team: 'blue' }); card.appendChild(c);
+    card.insertAdjacentHTML('beforeend', `<div class="ovr">${p.ovr}</div><div class="pos">${p.pos}</div><div class="nm">${p.name}</div>` + statLine(p));
     return card;
   }
   $('sq-save').onclick = () => {
     const owned = allOwned();
     const gkCount = editActive.map(id => owned.find(x => x.id === id)).filter(p => p && p.pos === 'GK').length;
     if (editActive.length !== 3 || gkCount !== 1) { renderSquad(); return; }
-    const squad = editActive.map(id => owned.find(x => x.id === id));
-    St.profile.squad = squad;
-    sendWs({ t: 'saveSquad', token: St.token, squad });
+    St.profile.squad = editActive.map(id => owned.find(x => x.id === id));
+    sendWs({ t: 'saveSquad', token: St.token, squad: St.profile.squad });
+    goHome();
   };
 
   // ---- collection -----------------------------------------------------------
-  function rarity(ovr) { return ovr >= 92 ? 'icon' : ovr >= 89 ? 'gold' : ovr >= 86 ? 'silver' : 'bronze'; }
   let colSort = 'ovr';
-  document.querySelectorAll('.col-sort .chip').forEach(c => {
-    c.onclick = () => {
-      document.querySelectorAll('.col-sort .chip').forEach(x => x.classList.remove('on'));
-      c.classList.add('on'); colSort = c.dataset.sort; renderCollection();
-    };
-  });
-  $('col-back').onclick = goHome;
-  function openCollection() { renderCollection(); show('screen-collection'); }
+  document.querySelectorAll('.col-sort .chip').forEach(c => c.onclick = () => { document.querySelectorAll('.col-sort .chip').forEach(x => x.classList.remove('on')); c.classList.add('on'); colSort = c.dataset.sort; renderCollection(); });
   function renderCollection() {
     const owned = allOwned();
-    $('col-count').textContent = `${owned.length} players · only SHO matters in TURF`;
+    $('col-count').textContent = `${owned.length} players · ratings are BAD / GOOD / SUPERB`;
     const posOrder = { GK: 0, DEF: 1, MID: 2, FWD: 3 };
     const sorted = owned.slice();
     if (colSort === 'ovr') sorted.sort((a, b) => b.ovr - a.ovr);
@@ -194,106 +164,81 @@
     for (const p of sorted) {
       const r = rarity(p.ovr);
       const card = document.createElement('div'); card.className = 'pcard r-' + r;
-      const c = mkCanvas(52, 70); paintFigure(c, p, { team: 'blue' });
-      card.appendChild(c);
-      card.insertAdjacentHTML('beforeend',
-        `<div class="ovr">${p.ovr}</div><div class="pos">${p.pos}</div>` +
-        `<div class="nm">${p.name}</div>` +
-        `<div class="sho"><span class="lbl">SHO</span><span class="val">${p.sho}</span></div>` +
-        `<div class="rib">${r}</div>`);
+      const c = mkCanvas(56, 74); paintFigure(c, p, { team: 'blue' }); card.appendChild(c);
+      card.insertAdjacentHTML('beforeend', `<div class="ovr">${p.ovr}</div><div class="pos">${p.pos}</div><div class="nm">${p.name}</div>` +
+        `<div class="tiers"><span class="tg t-${tierLabel(p.sho).toLowerCase()}">SHO ${tierLabel(p.sho)}</span><span class="tg t-${tierLabel(p.pas).toLowerCase()}">PAS ${tierLabel(p.pas)}</span></div>`);
       grid.appendChild(card);
     }
   }
 
-  // ---- tutorial -------------------------------------------------------------
+  // ---- rules / tutorial -----------------------------------------------------
   const TUT = [
     ['The pitch', '<b>3-a-side</b> on a 6x8 grid. Goals sit just outside each end; a line marks each keeper\'s zone.'],
-    ['Move at once', 'Order all your players, then Submit. Both teams resolve at the <b>same time</b>, so it\'s about reading the opponent.'],
-    ['Moving', 'Tap a player, then a square. <b>2 squares</b> off the ball, <b>1</b> while carrying. Diagonals count.'],
-    ['On the ball', 'Dribble, <b>short pass</b> (cut only if a defender sits in the lane), a <b>long ball</b> (lofts it forward: a team-mate in space brings it down, but into a crowd it drops loose; short cooldown), or pass <b>back to keeper</b> to reset.'],
-    ['Loose balls', 'A <b>loose ball</b> belongs to no one and pulses on the pitch. You get one when a long ball drops into traffic, a shot is parried, or a pass runs into space. Whoever is <b>closest next turn wins it</b>, so send someone to chase it down.'],
-    ['Off the ball', 'Your other player can come short, drop deep, or run in behind. Two defenders can\'t cover all three.'],
-    ['Defending', '<b>Press</b> to win the ball (miss and you\'re a beat behind), or drop and stay compact. Win it and you can\'t be tackled straight back.'],
-    ['Shooting', 'Shoot from the row in front of goal: you pick a corner, the keeper picks a dive. <b>SHO</b> is the only stat. Chip a keeper who has rushed out.'],
-    ['Win & collect', 'First to the target wins. Win for a player pack, then set your keeper and two outfielders in Squad.'],
+    ['Move at once', 'Order your players, then hit <b>Submit Moves</b>. Both teams resolve at the <b>same time</b> — read your opponent.'],
+    ['Moving', 'Tap a player, then a square. <b>2 squares</b> with the ball, <b>3</b> without. You can\'t move onto your own players.'],
+    ['On the ball', '<b>Run with ball</b>, <b>short pass</b> (cut only if a defender is in the lane), or a <b>long ball</b> over the top. Pass back to your keeper with a short or long pass to reset.'],
+    ['Two stats', 'Only <b>SHO</b> (finishing) and <b>PAS</b> (long-ball control) matter, each rated <b>BAD / GOOD / SUPERB</b>. Higher SHO scores more, even past a correct keeper. Higher PAS means long balls land at your man instead of bouncing loose.'],
+    ['Loose balls', 'A <b>loose ball</b> belongs to no one and pulses on the pitch. Whoever is closest next turn wins it.'],
+    ['Winning it back', 'No tackle button — <b>move a defender onto the ball carrier\'s square</b> to win it. Stay goal-side to block runs.'],
+    ['Shooting', 'From the last two rows, tap <b>Shoot</b> for a 1 v 1. You pick a corner, the keeper guesses a dive — your live <b>% to score</b> is shown.'],
+    ['Win & build', 'Beat a bot to win a <b>player pack</b>. Hard bots drop better players. Set your three in Squad.'],
   ];
-  let tutIdx = 0, tutFirst = false;
-  function maybeFirstTutorial() {
-    try { if (!localStorage.getItem('turf_tut_seen')) startTutorial(true); } catch {}
-  }
-  function startTutorial(first) { tutFirst = first; tutIdx = 0; renderTut(); ov('ov-tut', true); }
-  function renderTut() {
-    const [title, body] = TUT[tutIdx];
-    $('tut-step').textContent = `Step ${tutIdx + 1} of ${TUT.length}`;
-    $('tut-title').textContent = title;
-    $('tut-body').innerHTML = body;
-    $('tut-back').style.visibility = tutIdx === 0 ? 'hidden' : 'visible';
-    $('tut-next').textContent = tutIdx === TUT.length - 1 ? 'Got it' : 'Next';
-  }
-  $('tut-next').onclick = () => { if (tutIdx < TUT.length - 1) { tutIdx++; renderTut(); } else closeTut(); };
+  let tutIdx = 0;
+  function maybeFirstTutorial() { if (!lsGet('turf_tut_seen')) startTutorial(true); }
+  function startTutorial(first) { tutIdx = 0; renderTut(); if (first) lsSet('turf_tut_seen', '1'); ov('ov-tut', true); }
+  function renderTut() { const [t, b] = TUT[tutIdx]; $('tut-step').textContent = `${tutIdx + 1} / ${TUT.length}`; $('tut-title').textContent = t; $('tut-body').innerHTML = b; $('tut-back').style.visibility = tutIdx === 0 ? 'hidden' : 'visible'; $('tut-next').textContent = tutIdx === TUT.length - 1 ? 'Got it' : 'Next'; }
+  $('tut-next').onclick = () => { if (tutIdx < TUT.length - 1) { tutIdx++; renderTut(); } else ov('ov-tut', false); };
   $('tut-back').onclick = () => { if (tutIdx > 0) { tutIdx--; renderTut(); } };
-  $('tut-skip').onclick = closeTut;
-  function closeTut() { ov('ov-tut', false); try { localStorage.setItem('turf_tut_seen', '1'); } catch {} }
+  $('tut-skip').onclick = () => ov('ov-tut', false);
 
-  // ---- match start ----------------------------------------------------------
+  // ---- match ----------------------------------------------------------------
   function startMatch(m) {
-    St.you = m.you; St.snap = m.snapshot; St.orders = {}; St.sel = null; St.action = null;
-    St.vsBot = m.vsBot; St.difficulty = m.difficulty; St.goalTarget = m.goalTarget || 3;
-    show('screen-match');
+    St.you = m.you; St.snap = m.snapshot; St.orders = {}; St.sel = null; St.action = null; St.submitted = false;
+    St.vsBot = m.vsBot; St.difficulty = m.difficulty; St.goalTarget = m.goalTarget || 3; St.inMatch = true; St._sy = undefined; St._so = undefined;
+    hideAllOverlays(); show('screen-match');
     Pitch.init($('pitch'), St.you); St.inited = true;
     Pitch.setSnapshot(m.snapshot, false);
     const youBlue = St.you === 0;
     $('hud-you').className = 'badge' + (youBlue ? '' : ' red');
     $('hud-opp').className = 'badge' + (youBlue ? ' red' : '');
-    $('hud-opp').textContent = m.vsBot ? (m.difficulty === 'hard' ? 'HARD BOT' : 'EASY BOT') : 'OPP';
+    $('hud-opp').textContent = m.vsBot ? (m.difficulty === 'hard' ? 'HARD BOT' : 'EASY BOT') : 'RIVAL';
     $('hud-target').textContent = `First to ${St.goalTarget} wins a pack`;
-    ov('ov-end', false);
-    updateHud();
-    $('match-msg').textContent = '';
+    $('btn-submit').style.display = ''; $('btn-submit').textContent = 'Submit Moves!'; $('btn-submit').classList.remove('waiting');
+    updateHud(); matchMsg('');
   }
-  $('btn-quit').onclick = () => { sendWs({ t: 'leave' }); ov('ov-end', false); hidePop(); goHome(); };
+  $('btn-quit').onclick = () => { sendWs({ t: 'leave' }); goHome(); };
 
   function updateHud() {
     const s = St.snap; if (!s) return;
-    $('hud-s0').textContent = s.score[St.you];
-    $('hud-s1').textContent = s.score[1 - St.you];
-    const att = s.possession === St.you;
-    const loose = s.possession === -1;
-    $('hud-poss').textContent = loose ? 'Ball loose — chase it' : att ? 'You attack' : 'You defend';
-    $('hud-phase').textContent = s.phase === 'PLANNING' ? 'PLAN' : s.phase;
-    $('timerfill').style.background = att ? 'var(--blue)' : 'var(--red)';
+    $('hud-s0').textContent = s.score[St.you]; $('hud-s1').textContent = s.score[1 - St.you];
+    const sy = s.score[St.you], so = s.score[1 - St.you];
+    if (St._sy !== undefined && (sy !== St._sy || so !== St._so)) { const el = document.querySelector('.mhud-score'); if (el) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); } }
+    St._sy = sy; St._so = so;
+    const att = s.possession === St.you, loose = s.possession === -1;
+    const bar = $('hud-poss');
+    bar.textContent = loose ? 'BALL LOOSE — CHASE IT' : att ? 'YOU ATTACK' : 'YOU DEFEND';
+    bar.className = 'poss-bar ' + (loose ? 'loose' : att ? 'attack' : 'defend');
   }
 
-  // ---- planning -------------------------------------------------------------
   function onTurn(m) {
-    St.snap = m.snapshot; St.phase = 'PLANNING'; St.orders = {}; St.sel = null; St.action = null; St.submitted = false;
-    ov('ov-shoot', false);   // never let a leftover overlay block the board
-    Pitch.setSnapshot(m.snapshot, false);
-    Pitch.setOverlay(null);
+    St.snap = m.snapshot; St.orders = {}; St.sel = null; St.action = null; St.submitted = false;
+    ov('ov-shoot', false);
+    Pitch.setSnapshot(m.snapshot, false); Pitch.setOverlay(null);
     updateHud();
-    $('btn-submit').style.display = '';
-    $('btn-submit').textContent = 'Submit orders';
-    $('match-msg').textContent = '';
-    hidePop();
-    startTimer(m.deadline);
+    $('btn-submit').style.display = ''; $('btn-submit').textContent = 'Submit Moves!'; $('btn-submit').classList.remove('waiting');
+    matchMsg(''); hidePop();
   }
 
   function myPlayers() { return St.snap.players.filter(p => p.team === St.you); }
   function playerAt(abs) { return myPlayers().find(p => p.col === abs.col && p.row === abs.row); }
-  function attacking() { return St.snap.possession === St.you || St.snap.possession === -1; }
+  function mateOccupied(p, abs) { return myPlayers().some(q => q.id !== p.id && q.col === abs.col && q.row === abs.row); }
 
   function actionsFor(p) {
     const longOk = St.snap.longCd ? St.snap.longCd[St.you] === 0 : true;
-    if (St.snap.possession === (1 - St.you)) { // defending
-      const list = [['Move', 'move']];
-      const cr = theCarrier();
-      if (cr && p.pos !== 'GK' && cheb(p, cr) <= 3 && !(cr.protect > 0)) list.push(['Press', 'winball']);
-      return list;
-    }
+    if (St.snap.possession === (1 - St.you)) return [['Move', 'move']];
     if (isCarrier(p)) {
-      const list = [['Dribble', 'move'], ['Short pass', 'pass']];
+      const list = [['Run with ball', 'move'], ['Short pass', 'pass']];
       if (longOk) list.push(['Long pass', 'longpass']);
-      if (p.pos !== 'GK') list.push(['To keeper', 'backpass']);
       if (canShoot(p)) list.unshift(['Shoot', 'shoot']);
       if (p.pos !== 'GK' && oppKeeperOut()) list.push(['Chip', 'chip']);
       return list;
@@ -301,278 +246,182 @@
     return [['Run', 'move']];
   }
 
-  function clearSel() { St.sel = null; St.action = null; St.reach = null; hidePop(); drawOrders(); }
-
+  function clearSel() { St.sel = null; St.action = null; hidePop(); drawOrders(); matchMsg(''); }
   function hidePop() { const pop = $('ab-pop'); pop.style.display = 'none'; pop.innerHTML = ''; }
-
-  function refreshPop() {
-    if (!St.sel || St.submitted) { hidePop(); return; }
-    const p = St.snap.players.find(x => x.id === St.sel);
-    if (!p) { hidePop(); return; }
-    showPop(p);
-  }
+  function refreshPop() { if (!St.sel || St.submitted) { hidePop(); return; } const p = St.snap.players.find(x => x.id === St.sel); if (!p) { hidePop(); return; } showPop(p); }
 
   function showPop(p) {
-    const pop = $('ab-pop');
-    const mine = p.team === St.you;
-    const last = p.name.split(' ').slice(-1)[0];
-    let html = `<div class="ab-head">${last} · ${p.pos} · <b>SHO ${p.sho}</b></div>`;
-    if (mine && St.snap.phase === 'PLANNING' && !St.submitted) {
+    const pop = $('ab-pop'); const mine = p.team === St.you; const last = p.name.split(' ').slice(-1)[0];
+    let html = `<div class="ab-head">${last} · ${p.pos} · <b>SHO ${tierLabel(p.sho)}</b> · <b>PAS ${tierLabel(p.pas)}</b></div>`;
+    if (mine && !St.submitted) {
+      const acts = actionsFor(p);
       html += '<div class="ab-row">';
-      for (const [label, kind] of actionsFor(p)) html += `<button data-k="${kind}"${St.action === kind ? ' class="act"' : ''}>${label}</button>`;
+      for (const [label, kind] of acts) html += `<button data-k="${kind}"${St.action === kind ? ' class="act"' : ''}>${label}</button>`;
       html += '<button data-k="__cancel">Cancel</button></div>';
+      if (acts.some(a => a[1] === 'shoot')) html += `<div class="ab-hint"><b>${shootPct(p)}%</b> to score from here. Shoot opens a 1 v 1.</div>`;
+      else if (acts.some(a => a[1] === 'longpass')) html += `<div class="ab-hint">Long ball: <b>${longPct(p.pas)}%</b> to land at your man (PAS).</div>`;
+      else if (St.snap.possession === (1 - St.you)) html += '<div class="ab-hint">Move onto the carrier\'s square to win the ball back.</div>';
     }
-    pop.innerHTML = html;
-    pop.style.display = 'block';
+    pop.innerHTML = html; pop.style.display = 'block';
     const c = Pitch.screenOf(p.col, p.row), cell = Pitch.cell;
     pop.style.left = c.x + 'px';
-    const h = pop.offsetHeight;
-    let top = c.y - cell * 0.5 - h - 6;
-    if (top < 2) top = c.y + cell * 0.5 + 6;     // flip below if no room above
+    const h = pop.offsetHeight; let top = c.y - cell * 0.5 - h - 6; if (top < 2) top = c.y + cell * 0.5 + 6;
     pop.style.top = top + 'px';
-    pop.querySelectorAll('button').forEach(b => {
-      b.onclick = (e) => { e.stopPropagation(); const k = b.dataset.k; if (k === '__cancel') clearSel(); else armAction(k); };
-    });
+    pop.querySelectorAll('button').forEach(b => b.onclick = (e) => { e.stopPropagation(); const k = b.dataset.k; if (k === '__cancel') clearSel(); else armAction(k); });
   }
 
   function armAction(kind) {
     const p = St.snap.players.find(x => x.id === St.sel);
     if (kind === 'shoot') { St.orders[p.id] = { type: 'shoot' }; St.sel = null; St.action = null; hidePop(); submitOrders(); return; }
     if (kind === 'chip') { St.orders[p.id] = { type: 'chip' }; clearSel(); return; }
-    if (kind === 'backpass') { St.orders[p.id] = { type: 'backpass' }; clearSel(); return; }
-    if (kind === 'winball') { St.orders[p.id] = { type: 'winball' }; clearSel(); return; }
     St.action = kind;
+    if (kind === 'longpass') matchMsg(`Long ball ≈ ${longPct(p.pas)}% to control`);
     const range = kind === 'pass' ? shortReach() : kind === 'longpass' ? longReach() : moveAllow(p);
     const reach = [];
-    // move = squares within allowance; pass/longpass = any square within range (can play into space)
     for (let c = 0; c < St.snap.cols; c++) for (let r = 0; r < St.snap.rows; r++) {
       if (c === p.col && r === p.row) continue;
-      if (cheb(p, { col: c, row: r }) <= range) reach.push({ col: c, row: r });
+      if (cheb(p, { col: c, row: r }) > range) continue;
+      if (kind === 'move' && mateOccupied(p, { col: c, row: r })) continue;  // can't run onto your own players
+      reach.push({ col: c, row: r });
     }
-    St.reach = reach;
-    hidePop();                                   // get out of the way; tap a highlighted square
-    drawOrders(reach, kind, { col: p.col, row: p.row });
+    hidePop(); drawOrders(reach, kind, { col: p.col, row: p.row });
   }
 
   function drawOrders(reach, kind, sel) {
     const orders = Object.entries(St.orders).map(([id, o]) => {
-      const p = St.snap.players.find(x => x.id === id);
-      let to = o.to;
+      const p = St.snap.players.find(x => x.id === id); let to = o.to;
       if (o.type === 'shoot' || o.type === 'chip') to = { col: p.col, row: shootRow(p.team) };
-      if (o.type === 'winball') { const c = theCarrier(); to = c ? { col: c.col, row: c.row } : { col: p.col, row: p.row }; }
-      if (o.type === 'backpass') { const gk = myPlayers().find(x => x.pos === 'GK'); to = gk ? { col: gk.col, row: gk.row } : { col: p.col, row: p.row }; }
-      const color = o.type === 'winball' ? '#d11f2d' : o.type === 'pass' ? '#19a64a'
-        : o.type === 'longpass' ? '#e08a00' : o.type === 'backpass' ? '#0aa3a3'
-        : (o.type === 'shoot' || o.type === 'chip') ? '#111' : '#1f4fd1';
+      const color = o.type === 'pass' ? 'var(--green)' : o.type === 'longpass' ? 'var(--gold)' : (o.type === 'shoot' || o.type === 'chip') ? '#fff' : 'var(--blue)';
       return { from: { col: p.col, row: p.row }, to, color };
     });
     Pitch.setOverlay({ reach, kind, orders, sel });
   }
+  function selectPlayer(pl, abs) { St.sel = pl.id; St.action = null; matchMsg(''); refreshPop(); drawOrders(null, null, abs); }
 
-  function selectPlayer(pl, abs) { St.sel = pl.id; St.action = null; St.reach = null; refreshPop(); drawOrders(null, null, abs); }
-
-  // pitch taps
   $('pitch').addEventListener('click', (e) => {
-    if (St.phase !== 'PLANNING' || St.submitted) return;
+    if (St.submitted) return;
     const abs = Pitch.cellAt(e.clientX, e.clientY); if (!abs) return;
-    const mine = playerAt(abs);
     const anyP = St.snap.players.find(x => x.col === abs.col && x.row === abs.row);
     if (St.sel && St.action) {
       const p = St.snap.players.find(x => x.id === St.sel);
       if (St.action === 'pass' || St.action === 'longpass') {
         const range = St.action === 'pass' ? shortReach() : longReach();
-        if (cheb(p, abs) <= range && !(abs.col === p.col && abs.row === p.row)) {
-          St.orders[p.id] = { type: St.action === 'longpass' ? 'longpass' : 'pass', to: { col: abs.col, row: abs.row } };
-          clearSel(); return;
-        }
-      } else { // move / dribble / run
-        if (cheb(p, abs) <= moveAllow(p) && !(abs.col === p.col && abs.row === p.row)) {
-          St.orders[p.id] = { type: 'move', to: abs };
-          clearSel(); return;
-        }
-      }
+        if (cheb(p, abs) <= range && !(abs.col === p.col && abs.row === p.row)) { St.orders[p.id] = { type: St.action, to: { col: abs.col, row: abs.row } }; clearSel(); return; }
+      } else if (cheb(p, abs) <= moveAllow(p) && !(abs.col === p.col && abs.row === p.row) && !mateOccupied(p, abs)) { St.orders[p.id] = { type: 'move', to: abs }; clearSel(); return; }
       if (anyP) { selectPlayer(anyP, abs); return; }
       clearSel(); return;
     }
-    if (anyP) { selectPlayer(anyP, abs); return; }   // tap any player to see their SHO; yours also shows actions
-    clearSel();                                       // empty tap closes the popover
+    if (anyP) { selectPlayer(anyP, abs); return; }
+    clearSel();
   });
-
-  // long-press (mobile) / right-click (desktop) the ball carrier -> pass mode
-  function armPassOnCarrier(clientX, clientY) {
-    if (St.phase !== 'PLANNING' || St.submitted) return false;
-    const abs = Pitch.cellAt(clientX, clientY); if (!abs) return false;
-    const p = playerAt(abs);
-    if (p && isCarrier(p) && St.snap.possession === St.you) {
-      St.sel = p.id; armAction('pass'); return true;
-    }
-    return false;
-  }
-  $('pitch').addEventListener('contextmenu', (e) => { if (armPassOnCarrier(e.clientX, e.clientY)) e.preventDefault(); });
-  let pressTimer = null, pressMoved = false, suppressClick = false;
-  $('pitch').addEventListener('touchstart', (e) => {
-    pressMoved = false;
-    const t = e.touches[0]; if (!t) return;
-    pressTimer = setTimeout(() => {
-      if (!pressMoved && armPassOnCarrier(t.clientX, t.clientY)) suppressClick = true;
-    }, 420);
-  }, { passive: true });
-  $('pitch').addEventListener('touchmove', () => { pressMoved = true; if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } }, { passive: true });
-  $('pitch').addEventListener('touchend', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } }, { passive: true });
-  // swallow the click that follows a long-press
-  $('pitch').addEventListener('click', (e) => { if (suppressClick) { suppressClick = false; e.stopImmediatePropagation(); } }, true);
 
   $('btn-submit').onclick = submitOrders;
   function submitOrders() {
     if (St.submitted) return;
-    St.submitted = true; St.sel = null; St.action = null;
-    Pitch.setOverlay(null);
-    sendWs({ t: 'orders', orders: St.orders });
-    stopTimer();
-    hidePop();
-    $('btn-submit').textContent = 'Waiting…';
+    St.submitted = true; St.sel = null; St.action = null; Pitch.setOverlay(null);
+    sendWs({ t: 'orders', orders: St.orders }); hidePop(); matchMsg('');
+    $('btn-submit').textContent = 'Waiting…'; $('btn-submit').classList.add('waiting');
   }
 
-  // ---- timer ----------------------------------------------------------------
-  function startTimer(deadline) {
-    stopTimer();
-    St.deadline = deadline;
-    const total = Math.max(1, deadline - Date.now());
-    St.timer = setInterval(() => {
-      const left = deadline - Date.now();
-      const pct = clamp(left / total * 100, 0, 100);
-      $('timerfill').style.width = pct + '%';
-      if (left <= 0) { stopTimer(); if (!St.submitted) submitOrders(); }
-    }, 120);
-  }
-  function stopTimer() { if (St.timer) { clearInterval(St.timer); St.timer = null; } }
-
-  // ---- resolve / floats -----------------------------------------------------
+  // ---- resolve --------------------------------------------------------------
   function onResolve(m) {
-    St.snap = m.snapshot; stopTimer();
+    St.snap = m.snapshot;
     $('btn-submit').style.display = 'none';
     const shotEv = m.events.find(ev => ev.t === 'shootResult');
     const lp = m.events.find(ev => ev.t === 'longpass');
     const sp = m.events.find(ev => ev.t === 'pass');
     Pitch.setSnapshot(m.snapshot, true);
-    // ball flight: long ball arcs onto the square you aimed at, then bounces to where it settles
     let landDelay = 0;
     if (lp) { Pitch.flyBall([{ col: lp.to.col, row: lp.to.row }], { lofts: [0.95, 0.45], durs: [380, 280] }); landDelay = 380; }
     else if (sp) { Pitch.flyBall([], { lofts: [0.16], durs: [300] }); landDelay = 120; }
-    // floats from events (delayed so a loose/controlled call lands with the ball)
     const float = () => {
       for (const ev of m.events) {
-        if (ev.t === 'goal') Pitch.addFloat('GOAL!', 2, ev.team === 0 ? 0 : St.snap.rows - 1, '#19a64a');
-        else if (ev.t === 'intercept') Pitch.addFloat('INTERCEPTED', ev.at.col, ev.at.row, '#d11f2d');
-        else if (ev.t === 'loose') Pitch.addFloat('LOOSE BALL', ev.at.col, ev.at.row, '#b8860b');
-        else if (ev.t === 'control') Pitch.addFloat('IN BEHIND!', ev.at.col, ev.at.row, '#1f9d55');
-        else if (ev.t === 'challenge') {
-          const txt = ev.win === 'defender' ? 'WON BALL!' : ev.shielded ? 'HELD OFF' : 'KEPT IT';
-          Pitch.addFloat(txt, ev.at.col, ev.at.row, ev.win === 'defender' ? '#d11f2d' : '#1f4fd1');
-        }
+        if (ev.t === 'goal') Pitch.addFloat('GOAL!', 2, ev.team === 0 ? 0 : St.snap.rows - 1, '#27d07a');
+        else if (ev.t === 'intercept') Pitch.addFloat('INTERCEPTED', ev.at.col, ev.at.row, '#ff3b4e');
+        else if (ev.t === 'loose') Pitch.addFloat('LOOSE BALL', ev.at.col, ev.at.row, '#ffce3a');
+        else if (ev.t === 'control') Pitch.addFloat('IN BEHIND!', ev.at.col, ev.at.row, '#27d07a');
+        else if (ev.t === 'challenge') Pitch.addFloat(ev.win === 'defender' ? 'WON BALL!' : 'SHIELDED', ev.at.col, ev.at.row, ev.win === 'defender' ? '#ff3b4e' : '#3b6bff');
       }
     };
     if (landDelay) setTimeout(float, landDelay); else float();
-    updateHud();
-    $('match-msg').textContent = '';
-    if (shotEv) { animateShot(shotEv); }   // keep shoot overlay for the animation
-    else setTimeout(() => { ov('ov-shoot', false); }, 250);
+    updateHud(); matchMsg('');
+    if (shotEv) animateShot(shotEv); else setTimeout(() => ov('ov-shoot', false), 250);
   }
 
   function animateShot(ev) {
     const ball = $('shoot-ball'), result = $('shoot-result');
     const xOf = { L: '30%', R: '70%' };
     result.className = 'shoot-result'; result.textContent = '';
-    ball.className = 'shoot-ball'; ball.style.left = '50%'; ball.style.top = '78%';
-    if (ev.dive) moveKeeper(ev.dive);
+    ball.style.left = '50%'; ball.style.top = '80%';
+    moveKeeper(ev.dive);
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      ball.classList.add('fly');
       ball.style.left = xOf[ev.cell] || '50%';
-      ball.style.top = ev.goal ? '14%' : '50%';
+      ball.style.top = ev.outcome === 'goal' ? '12%' : ev.outcome === 'saved' ? '26%' : '-14%';  // miss flies over the bar
     }));
     setTimeout(() => {
-      if (ev.goal) { result.textContent = 'GOAL!'; result.className = 'shoot-result show goal'; }
-      else { result.textContent = 'SAVED!'; result.className = 'shoot-result show save'; }
+      const txt = ev.outcome === 'goal' ? 'GOAL!' : ev.outcome === 'saved' ? 'SAVED!' : 'MISSED!';
+      result.textContent = txt; result.className = 'shoot-result show ' + (ev.outcome === 'goal' ? 'goal' : 'save');
     }, 520);
-    setTimeout(() => {
-      ov('ov-shoot', false);
-      ball.className = 'shoot-ball'; result.className = 'shoot-result'; result.textContent = '';
-    }, 2300);
+    setTimeout(() => { ov('ov-shoot', false); ball.style.top = '80%'; result.className = 'shoot-result'; result.textContent = ''; }, 2200);
   }
 
   // ---- shoot 1 v 1 ----------------------------------------------------------
   function onShoot(m) {
-    St.snap = m.snapshot; stopTimer();
-    Pitch.setSnapshot(m.snapshot, true);
-    updateHud();
+    St.snap = m.snapshot;
+    Pitch.setSnapshot(m.snapshot, true); updateHud();
     const isShooter = m.role === 'shooter';
     const shooter = m.shooterId ? m.snapshot.players.find(p => p.id === m.shooterId) : null;
     const gk = m.gkId ? m.snapshot.players.find(p => p.id === m.gkId) : null;
-    $('shoot-title').textContent = isShooter ? 'Your shot · 1 v 1' : 'Save it!';
-    $('shoot-prompt').textContent = isShooter ? 'Pick a corner — the keeper is guessing' : 'Pick your dive — guess the corner';
+    const pct = isShooter && shooter ? shootPct(shooter) : null;
+    $('shoot-title').textContent = isShooter ? (pct + '% to score') : 'Save it!';
+    $('shoot-prompt').textContent = isShooter ? 'Pick a corner — the keeper is guessing' : 'Pick your dive';
     $('shoot-wait').textContent = '';
     if (gk) paintFigure($('shoot-gk'), gk, { team: gk.team === 0 ? 'blue' : 'red', view: 'front' });
     if (shooter) paintFigure($('shoot-shooter'), shooter, { team: shooter.team === 0 ? 'blue' : 'red', view: 'back' });
-    const ball = $('shoot-ball'); ball.className = 'shoot-ball'; ball.style.left = '50%'; ball.style.top = '80%';
+    const ball = $('shoot-ball'); ball.style.left = '50%'; ball.style.top = '80%';
     $('shoot-gk').style.left = '50%';
-    const res = $('shoot-result'); res.className = 'shoot-result'; res.textContent = '';
-    const zonesWrap = $('goal-zones'); zonesWrap.innerHTML = '';
-    let locked = false;
+    $('shoot-result').className = 'shoot-result'; $('shoot-result').textContent = '';
+    const zonesWrap = $('goal-zones'); zonesWrap.innerHTML = ''; let locked = false;
     [['L', '◀ LEFT'], ['R', 'RIGHT ▶']].forEach(([code, label]) => {
       const z = document.createElement('div'); z.className = 'z'; z.textContent = label;
-      z.onclick = () => {
-        if (locked) return; locked = true;
-        z.classList.add(isShooter ? 'on' : 'gk');
-        if (!isShooter) moveKeeper(code);
-        sendWs({ t: 'shootSel', sel: code });
-        $('shoot-wait').textContent = 'Locked in…';
-      };
+      z.onclick = () => { if (locked) return; locked = true; z.classList.add(isShooter ? 'on' : 'gk'); if (!isShooter) moveKeeper(code); sendWs({ t: 'shootSel', sel: code }); $('shoot-wait').textContent = 'Locked in…'; };
       zonesWrap.appendChild(z);
     });
     ov('ov-shoot', true);
-    autoDecision(() => { sendWs({ t: 'shootSel', sel: Math.random() < 0.5 ? 'L' : 'R' }); }, m.deadline);
+    autoDecision(() => sendWs({ t: 'shootSel', sel: Math.random() < 0.5 ? 'L' : 'R' }), m.deadline);
   }
-  function moveKeeper(dive) {
-    const gk = $('shoot-gk');
-    gk.style.left = dive === 'L' ? '30%' : '70%';
-  }
-
-  // auto-pick just before the server deadline if the player did nothing
-  function autoDecision(fn, deadline) {
-    clearTimeout(St.decTimer);
-    const ms = deadline ? Math.max(400, deadline - Date.now() - 400) : 5600;
-    St.decTimer = setTimeout(fn, ms);
-  }
+  function moveKeeper(dive) { $('shoot-gk').style.left = dive === 'L' ? '30%' : '70%'; }
+  function autoDecision(fn, deadline) { clearTimeout(St.decTimer); const ms = deadline ? Math.max(600, deadline - Date.now() - 600) : 8000; St.decTimer = setTimeout(fn, ms); }
 
   // ---- match end ------------------------------------------------------------
   function onEnd(m) {
-    stopTimer();
-    if (m.profile) { St.profile = m.profile; St.token = m.profile.token; }
+    clearTimeout(St.decTimer);
+    if (m.profile) { St.profile = m.profile; St.token = m.profile.token; lsSet('turf_token', St.token); }
     $('end-title').textContent = m.draw ? 'DRAW' : m.won ? 'YOU WIN' : 'YOU LOSE';
     $('end-title').style.color = m.draw ? 'var(--sub)' : m.won ? 'var(--blue)' : 'var(--red)';
     $('end-score').textContent = `${m.score[St.you]} – ${m.score[1 - St.you]}`;
     const label = $('end-pack-label'), wrap = $('end-pack'); wrap.innerHTML = '';
     if (m.won && m.pack && m.pack.length) {
-      label.textContent = 'You won a pack';
-      m.pack.forEach((pl, i) => {
-        const r = rarity(pl.ovr);
-        const flip = document.createElement('div'); flip.className = 'flip';
-        const inner = document.createElement('div'); inner.className = 'flip-in';
-        const back = document.createElement('div'); back.className = 'flip-face flip-back'; back.textContent = 'TURF';
-        const front = document.createElement('div'); front.className = 'flip-face flip-front r-' + r;
-        const c = mkCanvas(60, 80); paintFigure(c, pl, { team: 'blue' }); front.appendChild(c);
-        front.insertAdjacentHTML('beforeend', `<div class="ov">${pl.ovr}</div><div class="nm">${pl.name.split(' ').slice(-1)[0]}</div>`);
-        inner.appendChild(back); inner.appendChild(front); flip.appendChild(inner);
-        flip.onclick = () => flip.classList.add('on');
-        wrap.appendChild(flip);
-        setTimeout(() => flip.classList.add('on'), 500 + i * 450);
-      });
-    } else { label.textContent = ''; }
-    ov('ov-shoot', false);
-    ov('ov-end', true);
+      label.textContent = 'Tap to reveal your new player';
+      const pl = m.pack[0], r = rarity(pl.ovr);
+      const card = document.createElement('div'); card.className = 'rc r-' + r + ' facedown';
+      const c = mkCanvas(96, 124); paintFigure(c, pl, { team: 'blue' }); card.appendChild(c);
+      card.insertAdjacentHTML('beforeend', `<div class="ovr">${pl.ovr}</div><div class="nm">${pl.name}</div>` +
+        `<div class="tiers"><span class="tg t-${tierLabel(pl.sho).toLowerCase()}">SHO ${tierLabel(pl.sho)}</span><span class="tg t-${tierLabel(pl.pas).toLowerCase()}">PAS ${tierLabel(pl.pas)}</span></div>` +
+        `<div class="back-face">TURF</div>`);
+      const reveal = () => { card.classList.remove('facedown'); card.classList.add('reveal'); label.textContent = 'New player added to your collection'; };
+      card.onclick = reveal; wrap.appendChild(card);
+      setTimeout(reveal, 1400);
+    } else label.textContent = '';
+    ov('ov-shoot', false); ov('ov-end', true);
   }
   $('end-rematch').onclick = () => { ov('ov-end', false); sendWs({ t: 'rematch' }); };
   $('end-home').onclick = () => { ov('ov-end', false); sendWs({ t: 'leave' }); goHome(); };
+
+  // returning to the app on a dead socket mid-match -> reconnect (don't disturb a healthy one)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && St.inMatch && (!St.ws || St.ws.readyState !== 1)) connect();
+  });
 
   connect();
 })();

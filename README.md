@@ -1,22 +1,24 @@
 # TURF
 
 A turn-based **3-a-side** football game for mobile web. Both teams plan every player's
-move at once, submit blind, and watch them resolve together. You play on a 4x6 grid
-with the goals just outside it; you move 2 squares but only 1 on the ball, pass into
-feet or into space (range 2, no long-ball spam), win the ball by stepping into the
-carrier, and shoot only from the row in front of goal in a keeper bluff. Play the bots
-solo or share a code to play a friend. No build step, no image files: every sprite is
-drawn in code.
+move at once, submit blind, and watch them resolve together. You play on a 6x8 grid
+with the goals just outside it; you move 3 squares (2 on the ball), short-pass (range 3,
+cut only in the lane) or hit a long ball (range 6), and win the ball positionally by
+moving onto the carrier's square. Shoot from the last two rows in a 1v1 keeper bluff.
+Two stats only: **SHO** (finishing) and **PAS** (long-ball control), each BAD / GOOD /
+SUPERB. Play the bots solo or share a code to play a friend. No build step, no image
+files: every sprite is drawn in code.
 
 ## Play
 - **Vs Easy / Hard bot** for a single-player match.
 - **Play a friend**: create a room, share your 4-letter code, they join.
 - **Squad**: pick a keeper and two outfielders.
-- **Collection**: every player you own, with full stats and rarity.
-- **Win a match** to earn a **pack** of three players for your collection.
+- **Collection**: every player you own, with SHO/PAS tiers and rarity.
+- **Win a match** to earn a **pack** (one player). Hard bots drop better players.
 - **How to play** opens the tutorial any time (it also shows once on first run).
 
-Your login is a short numeric **code**. It works on any device. Keep it.
+Your team saves automatically on this device (no login needed). To move it to
+another device, use the 4-character **code** shown on the home screen via *Use a code*.
 
 ## Run locally
 ```

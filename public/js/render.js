@@ -22,8 +22,9 @@
   function resize() {
     if (!cv) return;
     const wrap = cv.parentElement;
-    const cssW = Math.min(wrap.clientWidth, 420);
-    cell = Math.floor(cssW / COLS);
+    const availW = Math.min(wrap.clientWidth, 460);
+    const availH = wrap.clientHeight || (availW / COLS) * (ROWS + PAD * 2);
+    cell = Math.max(26, Math.floor(Math.min(availW / COLS, availH / (ROWS + PAD * 2))));
     const cssH = cell * (ROWS + PAD * 2);
     const dpr = window.devicePixelRatio || 1;
     cv.style.width = (cell * COLS) + 'px';
@@ -64,8 +65,11 @@
   function addFloat(text, acol, arow, color) {
     const r = aToR(acol, arow);
     floats.push({ text, col: r.col, row: r.row, t0: performance.now(), dur: 1100, color: color || '#111' });
+    if (/GOAL/.test(text)) goalFlash = { top: r.row === 0, t0: performance.now(), color: color || '#27d07a' };
   }
   function setOverlay(o) { overlay = o; }
+  let goalFlash = null;
+  function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 
   function cellAt(clientX, clientY) {
     const rect = cv.getBoundingClientRect();
@@ -113,6 +117,11 @@
     ctx.beginPath(); ctx.arc(W / 2, gridY + gridH / 2, cell * 0.55, 0, Math.PI * 2); ctx.stroke();
 
     drawGoals(gridY, gridH);
+    if (goalFlash) {
+      const k = (now - goalFlash.t0) / 900;
+      if (k >= 1) goalFlash = null;
+      else { const x0 = GOAL[0] * cell, w = GOAL.length * cell, y = goalFlash.top ? 0 : gridY + gridH; ctx.save(); ctx.globalAlpha = (1 - k) * 0.40; ctx.fillStyle = goalFlash.color; ctx.fillRect(x0, y, w, cell); ctx.restore(); }
+    }
     drawRedLines();
     if (overlay) drawOverlay();
 
@@ -163,26 +172,29 @@
     const o = overlay;
     if (o.reach) for (const sq of o.reach) {
       const p = px(sq.col, sq.row);
-      const fill = o.kind === 'pass' ? 'rgba(25,166,74,0.18)' : 'rgba(31,79,209,0.16)';
-      const stroke = o.kind === 'pass' ? 'rgba(25,166,74,0.6)' : 'rgba(31,79,209,0.55)';
-      ctx.fillStyle = fill; ctx.fillRect(p.x + 2, p.y + 2, cell - 4, cell - 4);
-      ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
-      ctx.strokeRect(p.x + 3, p.y + 3, cell - 6, cell - 6); ctx.setLineDash([]);
+      const pass = o.kind === 'pass' || o.kind === 'longpass';
+      const rgb = pass ? '39,208,122' : '59,107,255';
+      ctx.fillStyle = `rgba(${rgb},0.14)`; roundRect(p.x + 2.5, p.y + 2.5, cell - 5, cell - 5, cell * 0.2); ctx.fill();
+      ctx.fillStyle = `rgba(${rgb},0.7)`; ctx.beginPath(); ctx.arc(p.x + cell / 2, p.y + cell / 2, cell * 0.07, 0, Math.PI * 2); ctx.fill();
     }
     if (o.orders) for (const ord of o.orders) {
       if (!ord.to || !ord.from) continue;
       const f = center(ord.from.col, ord.from.row), tg = center(ord.to.col, ord.to.row);
       ctx.strokeStyle = ord.color; ctx.lineWidth = 3; ctx.setLineDash([6, 5]);
       ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(tg.x, tg.y); ctx.stroke(); ctx.setLineDash([]);
-      ctx.fillStyle = ord.color; ctx.beginPath(); ctx.arc(tg.x, tg.y, cell * 0.12, 0, Math.PI * 2); ctx.fill();
+      const ang = Math.atan2(tg.y - f.y, tg.x - f.x), ah = cell * 0.17;
+      ctx.fillStyle = ord.color; ctx.beginPath();
+      ctx.moveTo(tg.x, tg.y);
+      ctx.lineTo(tg.x - ah * Math.cos(ang - 0.4), tg.y - ah * Math.sin(ang - 0.4));
+      ctx.lineTo(tg.x - ah * Math.cos(ang + 0.4), tg.y - ah * Math.sin(ang + 0.4));
+      ctx.closePath(); ctx.fill();
     }
     if (o.sel) {
-      const c = center(o.sel.col, o.sel.row);
-      ctx.strokeStyle = '#111'; ctx.lineWidth = 3;
-      ctx.strokeRect(c.x - cell / 2 + 2, c.y - cell / 2 + 2, cell - 4, cell - 4);
+      const c = center(o.sel.col, o.sel.row), r = cell * 0.45;
+      ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(59,107,255,0.75)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(c.x, c.y, r + 3, 0, Math.PI * 2); ctx.stroke();
     }
   }
-
   function drawPlayer(p) {
     const d = disp.get(p.id) || aToR(p.col, p.row);
     const x = d.col * cell, y = (d.row + PAD) * cell;
