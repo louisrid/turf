@@ -13,6 +13,7 @@ const PORT = process.env.PORT || 3000;
 const PLANNING_MS = Number(process.env.PLANNING_MS || 45000);
 const DECISION_MS = Number(process.env.DECISION_MS || 20000);
 const GOAL_TARGET = Number(process.env.GOAL_TARGET || 3);
+const MAX_TURNS = Number(process.env.MAX_TURNS || 90);
 const RESOLVE_GAP_MS = Number(process.env.RESOLVE_GAP_MS || 1500);
 const SHOT_GAP_MS = Number(process.env.SHOT_GAP_MS || 2800);
 
@@ -45,6 +46,7 @@ function startMatch(room) {
   if (room.bot) squadB = room.bot.squad;
   else { const b = room.players[1]; squadB = validSquad(b.profile) ? b.profile.squad : makeSquadNear(squadAverage(squadA)); }
   room.match = engine.createMatch(squadA, squadB);
+  room.match.easyBotTeam = (room.bot && room.bot.diff === 'easy') ? room.bot.team : -1;
   room.orders = [null, null];
   room.over = false;
   room.planMs = room.bot ? PLANNING_MS * 4 : PLANNING_MS;
@@ -140,6 +142,10 @@ function afterResolve(room, events) {
     endMatch(room, m.score[0] > m.score[1] ? 0 : 1);
     return;
   }
+  if (m.turn > MAX_TURNS) {
+    endMatch(room, m.score[0] === m.score[1] ? -1 : (m.score[0] > m.score[1] ? 0 : 1));
+    return;
+  }
   // hold longer after a shot so the result animation can play out
   const shotish = events && events.some(e => e.t === 'shootResult' || e.t === 'goal');
   const gap = shotish ? Math.max(RESOLVE_GAP_MS, SHOT_GAP_MS) : RESOLVE_GAP_MS;
@@ -150,7 +156,8 @@ async function endMatch(room, winnerTeam) {
   clearTimers(room);
   room.over = true;
   for (const p of room.players) {
-    const won = p.team === winnerTeam;
+    const draw = winnerTeam === -1;
+    const won = !draw && p.team === winnerTeam;
     const my = p.team, opp = 1 - p.team;
     let pack = null;
     if (p.profile && p.profile.token) {
@@ -162,24 +169,53 @@ async function endMatch(room, winnerTeam) {
         pack = makePack(squadAverage(p.profile.squad || []));
         p.profile.packs = (p.profile.packs || 0) + 1;
         p.profile.collection = (p.profile.collection || []).concat(pack);
-      } else {
+      } else if (!draw) {
         p.profile.losses = (p.profile.losses || 0) + 1;
+      } else {
+        p.profile.draws = (p.profile.draws || 0) + 1;
       }
       try { await saveProfile(p.profile); } catch {}
     }
-    send(p.ws, { t: 'matchEnd', winnerTeam, won, pack, score: room.match.score, profile: p.profile, vsBot: !!room.bot });
+    send(p.ws, { t: 'matchEnd', winnerTeam, won, draw, pack, score: room.match.score, profile: p.profile, vsBot: !!room.bot });
   }
 }
 
-function leaveRoom(ws) {
+async function leaveRoom(ws) {
   for (const [code, room] of rooms) {
     const idx = room.players.findIndex(p => p.ws === ws);
-    if (idx >= 0) {
-      clearTimers(room);
-      room.players.forEach(p => { if (p.ws !== ws) send(p.ws, { t: 'oppLeft' }); });
-      rooms.delete(code);
-      return;
+    if (idx < 0) continue;
+    clearTimers(room);
+    const leaver = room.players[idx];
+    const opp = room.players.find(p => p.ws !== ws);
+    if (room.match && !room.over) {
+      room.over = true;
+      const m = room.match;
+      if (leaver.profile && leaver.profile.token) {
+        leaver.profile.matches = (leaver.profile.matches || 0) + 1;
+        leaver.profile.losses = (leaver.profile.losses || 0) + 1;
+        leaver.profile.goalsFor = (leaver.profile.goalsFor || 0) + m.score[leaver.team];
+        leaver.profile.goalsAgainst = (leaver.profile.goalsAgainst || 0) + m.score[1 - leaver.team];
+        try { await saveProfile(leaver.profile); } catch {}
+        send(leaver.ws, { t: 'profile', profile: leaver.profile });   // refresh the leaver's home record
+      }
+      if (opp) {
+        if (opp.profile && opp.profile.token) {
+          opp.profile.matches = (opp.profile.matches || 0) + 1;
+          opp.profile.wins = (opp.profile.wins || 0) + 1;
+          opp.profile.goalsFor = (opp.profile.goalsFor || 0) + m.score[opp.team];
+          opp.profile.goalsAgainst = (opp.profile.goalsAgainst || 0) + m.score[1 - opp.team];
+          const pack = makePack(squadAverage(opp.profile.squad || []));
+          opp.profile.packs = (opp.profile.packs || 0) + 1;
+          opp.profile.collection = (opp.profile.collection || []).concat(pack);
+          try { await saveProfile(opp.profile); } catch {}
+          send(opp.ws, { t: 'matchEnd', winnerTeam: opp.team, won: true, draw: false, pack, score: m.score, profile: opp.profile, vsBot: false, byForfeit: true });
+        } else send(opp.ws, { t: 'oppLeft' });
+      }
+    } else if (opp) {
+      send(opp.ws, { t: 'oppLeft' });
     }
+    rooms.delete(code);
+    return;
   }
 }
 

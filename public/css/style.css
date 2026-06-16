@@ -91,18 +91,26 @@ input::placeholder{color:#bdbdc4;letter-spacing:2px}
 .timerbar{height:8px;background:var(--panel);border:2px solid var(--ink);border-radius:6px;overflow:hidden}
 #timerfill{height:100%;width:100%;background:var(--blue);transition:width .25s linear}
 
-.pitch-wrap{display:flex;justify-content:center;border:2px solid var(--ink);border-radius:10px;
-  overflow:hidden;background:#fff}
+.pitch-wrap{position:relative;display:flex;justify-content:center;border:2px solid var(--ink);border-radius:10px;
+  overflow:visible;background:#fff}
 #pitch{display:block;touch-action:manipulation}
 
-.action-bar{min-height:64px;background:var(--panel);border:2px solid var(--line);border-radius:10px;padding:8px}
-.ab-title{font-size:13px;font-weight:800;color:var(--sub);margin-bottom:6px;text-align:center}
-.ab-buttons{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
-.ab-buttons button{font:inherit;font-weight:800;font-size:13px;padding:9px 12px;border:2px solid var(--ink);
-  border-radius:8px;background:#fff;color:var(--ink);cursor:pointer;box-shadow:3px 3px 0 var(--shadow)}
-.ab-buttons button.act{background:var(--ink);color:#fff}
-.ab-buttons button:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--shadow)}
+.ab-pop{position:absolute;display:none;z-index:20;transform:translateX(-50%);
+  background:var(--panel);border:2px solid var(--ink);border-radius:10px;padding:6px;
+  box-shadow:3px 3px 0 var(--shadow)}
+.ab-pop .ab-head{font-size:12px;font-weight:800;color:var(--sub);text-align:center;margin-bottom:5px}
+.ab-pop .ab-head b{color:var(--ink)}
+.ab-pop .ab-row{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;max-width:236px}
+.ab-pop button{font:inherit;font-weight:800;font-size:12px;padding:7px 9px;border:2px solid var(--ink);
+  border-radius:7px;background:#fff;color:var(--ink);cursor:pointer;box-shadow:2px 2px 0 var(--shadow)}
+.ab-pop button.act{background:var(--ink);color:#fff}
+.ab-pop button:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--shadow)}
 .match-msg{text-align:center;font-size:13px;font-weight:700;color:var(--sub);min-height:16px}
+.target{text-align:center;font-size:11px;font-weight:800;letter-spacing:.4px;color:var(--sub);text-transform:uppercase;margin:2px 0 4px}
+.match-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px}
+.match-foot .match-msg{flex:1;text-align:left;margin:0}
+.quit{background:none;border:none;color:var(--sub);font-weight:800;font-size:12px;text-decoration:underline;cursor:pointer;padding:6px 4px}
+.quit:active{color:var(--red)}
 
 /* OVERLAYS */
 .overlay{position:fixed;inset:0;background:rgba(255,255,255,.82);backdrop-filter:blur(3px);

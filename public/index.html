@@ -13,7 +13,7 @@
   <!-- LOGIN -->
   <section id="screen-login" class="screen active">
     <div class="brand">TURF</div>
-    <div class="tag">5-a-side. Move at once. Read the bluff.</div>
+    <div class="tag">3-a-side. Move at once. Read the bluff.</div>
     <button id="btn-new" class="primary">New team</button>
     <div class="or">or log in with your code</div>
     <div class="row">
@@ -101,18 +101,18 @@
       <div class="hud-score"><span id="hud-s0">0</span><span class="dash">–</span><span id="hud-s1">0</span></div>
       <div class="hud-side right"><span id="hud-opp" class="badge red">OPP</span></div>
     </div>
+    <div id="hud-target" class="target"></div>
     <div class="hud2">
       <div id="hud-phase" class="phase">PLAN</div>
       <div class="timerbar"><div id="timerfill"></div></div>
       <div id="hud-poss" class="poss"></div>
     </div>
-    <div id="pitch-wrap" class="pitch-wrap"><canvas id="pitch"></canvas></div>
-    <div id="action-bar" class="action-bar">
-      <div id="ab-title" class="ab-title">Tap one of your players</div>
-      <div id="ab-buttons" class="ab-buttons"></div>
-    </div>
+    <div id="pitch-wrap" class="pitch-wrap"><canvas id="pitch"></canvas><div id="ab-pop" class="ab-pop"></div></div>
     <button id="btn-submit" class="primary submit">Submit orders</button>
-    <div id="match-msg" class="match-msg"></div>
+    <div class="match-foot">
+      <div id="match-msg" class="match-msg"></div>
+      <button id="btn-quit" class="link quit">Leave match</button>
+    </div>
   </section>
 
   <!-- DUEL OVERLAY -->

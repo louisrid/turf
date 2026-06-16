@@ -167,6 +167,7 @@
       ctx.strokeRect(p.x + 3, p.y + 3, cell - 6, cell - 6); ctx.setLineDash([]);
     }
     if (o.orders) for (const ord of o.orders) {
+      if (!ord.to || !ord.from) continue;
       const f = center(ord.from.col, ord.from.row), tg = center(ord.to.col, ord.to.row);
       ctx.strokeStyle = ord.color; ctx.lineWidth = 3; ctx.setLineDash([6, 5]);
       ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(tg.x, tg.y); ctx.stroke(); ctx.setLineDash([]);
@@ -200,5 +201,7 @@
     ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(x, y, rr * 0.42, 0, Math.PI * 2); ctx.fill();
   }
 
-  window.Pitch = { init, setSnapshot, cellAt, centerOf: center, setOverlay, addFloat, get you() { return you; } };
+  function screenOf(col, row) { const c = center(col, row); return { x: (cv.offsetLeft || 0) + c.x, y: (cv.offsetTop || 0) + c.y }; }
+
+  window.Pitch = { init, setSnapshot, cellAt, centerOf: center, screenOf, get cell() { return cell; }, setOverlay, addFloat, get you() { return you; } };
 })();
