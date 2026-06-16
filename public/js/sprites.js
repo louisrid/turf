@@ -17,10 +17,10 @@
   };
   const KIT = {
     red:  { main: '#d11f2d', dark: '#9c1622', trim: '#f4f4f4', shorts: '#b11622', socks: '#d11f2d' },
-    blue: { main: '#1f4fd1', dark: '#163a9c', trim: '#f4f4f4', shorts: '#173da6', socks: '#1f4fd1' },
+    blue: { main: '#2750d8', dark: '#173da6', trim: '#f4f4f4', shorts: '#173da6', socks: '#2750d8' },
   };
   const GK_KIT = {
-    red:  { main: '#19a64a', dark: '#127a37', trim: '#0c5224', shorts: '#1c1c1f', socks: '#19a64a' },
+    red:  { main: '#7a3fd0', dark: '#5a2ba0', trim: '#ece4ff', shorts: '#1c1c1f', socks: '#7a3fd0' },
     blue: { main: '#f2c200', dark: '#c39d00', trim: '#3a2f00', shorts: '#1c1c1f', socks: '#f2c200' },
   };
   const BOOT = '#f4f4f4', BOOT_D = '#c9c9c9', OUTLINE = '#1b1b20', EYE = '#ffffff';

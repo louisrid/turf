@@ -186,7 +186,7 @@
   let tutIdx = 0;
   function maybeFirstTutorial() { if (!lsGet('turf_tut_seen')) startTutorial(true); }
   function startTutorial(first) { tutIdx = 0; renderTut(); if (first) lsSet('turf_tut_seen', '1'); ov('ov-tut', true); }
-  function renderTut() { const [t, b] = TUT[tutIdx]; $('tut-step').textContent = `${tutIdx + 1} / ${TUT.length}`; $('tut-title').textContent = t; $('tut-body').innerHTML = b; $('tut-back').style.visibility = tutIdx === 0 ? 'hidden' : 'visible'; $('tut-next').textContent = tutIdx === TUT.length - 1 ? 'Got it' : 'Next'; }
+  function renderTut() { const [t, b] = TUT[tutIdx]; $('tut-step').textContent = `${tutIdx + 1} / ${TUT.length}`; $('tut-title').textContent = t; $('tut-body').innerHTML = b; $('tut-back').style.display = tutIdx === 0 ? 'none' : ''; $('tut-next').textContent = tutIdx === TUT.length - 1 ? 'Got it' : 'Next'; }
   $('tut-next').onclick = () => { if (tutIdx < TUT.length - 1) { tutIdx++; renderTut(); } else ov('ov-tut', false); };
   $('tut-back').onclick = () => { if (tutIdx > 0) { tutIdx--; renderTut(); } };
   $('tut-skip').onclick = () => ov('ov-tut', false);
@@ -291,7 +291,7 @@
     const orders = Object.entries(St.orders).map(([id, o]) => {
       const p = St.snap.players.find(x => x.id === id); let to = o.to;
       if (o.type === 'shoot' || o.type === 'chip') to = { col: p.col, row: shootRow(p.team) };
-      const color = o.type === 'pass' ? 'var(--green)' : o.type === 'longpass' ? 'var(--gold)' : (o.type === 'shoot' || o.type === 'chip') ? '#fff' : 'var(--blue)';
+      const color = o.type === 'pass' ? 'var(--ink)' : o.type === 'longpass' ? 'var(--gold)' : (o.type === 'shoot' || o.type === 'chip') ? 'var(--red)' : 'var(--blue)';
       return { from: { col: p.col, row: p.row }, to, color };
     });
     Pitch.setOverlay({ reach, kind, orders, sel });
@@ -336,11 +336,11 @@
     else if (sp) { Pitch.flyBall([], { lofts: [0.16], durs: [300] }); landDelay = 120; }
     const float = () => {
       for (const ev of m.events) {
-        if (ev.t === 'goal') Pitch.addFloat('GOAL!', 2, ev.team === 0 ? 0 : St.snap.rows - 1, '#27d07a');
+        if (ev.t === 'goal') Pitch.addFloat('GOAL!', 2, ev.team === 0 ? 0 : St.snap.rows - 1, '#ffd34d');
         else if (ev.t === 'intercept') Pitch.addFloat('INTERCEPTED', ev.at.col, ev.at.row, '#ff3b4e');
         else if (ev.t === 'loose') Pitch.addFloat('LOOSE BALL', ev.at.col, ev.at.row, '#ffce3a');
-        else if (ev.t === 'control') Pitch.addFloat('IN BEHIND!', ev.at.col, ev.at.row, '#27d07a');
-        else if (ev.t === 'challenge') Pitch.addFloat(ev.win === 'defender' ? 'WON BALL!' : 'SHIELDED', ev.at.col, ev.at.row, ev.win === 'defender' ? '#ff3b4e' : '#3b6bff');
+        else if (ev.t === 'control') Pitch.addFloat('IN BEHIND!', ev.at.col, ev.at.row, '#ffffff');
+        else if (ev.t === 'challenge') Pitch.addFloat(ev.win === 'defender' ? 'WON BALL!' : 'SHIELDED', ev.at.col, ev.at.row, ev.win === 'defender' ? '#ff3b4e' : '#9fd0ff');
       }
     };
     if (landDelay) setTimeout(float, landDelay); else float();

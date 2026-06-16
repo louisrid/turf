@@ -104,16 +104,16 @@
     if (!ctx) return;
     const W = cell * COLS, gridY = PAD * cell, gridH = cell * ROWS, H = cell * (ROWS + PAD * 2);
     ctx.clearRect(0, 0, W, H);
-    // surrounds
-    ctx.fillStyle = '#eef0f2'; ctx.fillRect(0, 0, W, H);
-    // pitch
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, gridY, W, gridH);
-    // grid
-    ctx.strokeStyle = '#d7d7da'; ctx.lineWidth = 1;
+    // surrounds behind the goals (darker grass)
+    ctx.fillStyle = '#1d6536'; ctx.fillRect(0, 0, W, H);
+    // pitch with mown stripes
+    for (let r = 0; r < ROWS; r++) { ctx.fillStyle = (r % 2 === 0) ? '#2fa052' : '#2a9149'; ctx.fillRect(0, gridY + r * cell, W, cell); }
+    // grid (subtle white)
+    ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 1;
     for (let c = 0; c <= COLS; c++) line(c * cell, gridY, c * cell, gridY + gridH);
     for (let r = 0; r <= ROWS; r++) line(0, gridY + r * cell, W, gridY + r * cell);
-    // halfway
-    ctx.strokeStyle = '#c7c7cc'; ctx.lineWidth = 2; line(0, gridY + gridH / 2, W, gridY + gridH / 2);
+    // halfway + centre (white)
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2; line(0, gridY + gridH / 2, W, gridY + gridH / 2);
     ctx.beginPath(); ctx.arc(W / 2, gridY + gridH / 2, cell * 0.55, 0, Math.PI * 2); ctx.stroke();
 
     drawGoals(gridY, gridH);
@@ -146,7 +146,7 @@
     if (!snap || !snap.redRows) return;
     const W = cell * COLS;
     const lines = [
-      { y: px(0, snap.redRows[0]).y, color: 'rgba(31,79,209,0.85)' },     // team0 keeper zone (blue)
+      { y: px(0, snap.redRows[0]).y, color: 'rgba(47,107,255,0.9)' },     // home keeper zone (blue)
       { y: px(0, snap.redRows[1] + 1).y, color: 'rgba(209,31,45,0.85)' }, // team1 keeper zone (red)
     ];
     ctx.lineWidth = 2.5; ctx.setLineDash([7, 5]);
@@ -159,10 +159,10 @@
     // top goal box (render rows above the grid), bottom goal box (below)
     for (const top of [true, false]) {
       const y = top ? 0 : gridY + gridH;
-      ctx.fillStyle = '#dfe2e6'; ctx.fillRect(x0, y, w, cell);
-      ctx.strokeStyle = '#9a9aa0'; ctx.lineWidth = 3; ctx.strokeRect(x0 + 1.5, top ? 1.5 : y + 1.5, w - 3, cell - 3);
+      ctx.fillStyle = 'rgba(240,245,240,0.95)'; ctx.fillRect(x0, y, w, cell);
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.strokeRect(x0 + 1.5, top ? 1.5 : y + 1.5, w - 3, cell - 3);
       // net hatch
-      ctx.strokeStyle = '#c2c5ca'; ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(120,140,120,0.45)'; ctx.lineWidth = 1;
       for (let gx = x0 + 8; gx < x0 + w; gx += 8) line(gx, y + 3, gx, y + cell - 3);
       for (let gy = y + 8; gy < y + cell; gy += 8) line(x0 + 3, gy, x0 + w - 3, gy);
     }
@@ -172,9 +172,8 @@
     const o = overlay;
     if (o.reach) for (const sq of o.reach) {
       const p = px(sq.col, sq.row);
-      const pass = o.kind === 'pass' || o.kind === 'longpass';
-      const rgb = pass ? '39,208,122' : '59,107,255';
-      ctx.fillStyle = `rgba(${rgb},0.14)`; roundRect(p.x + 2.5, p.y + 2.5, cell - 5, cell - 5, cell * 0.2); ctx.fill();
+      const rgb = o.kind === 'pass' ? '255,255,255' : o.kind === 'longpass' ? '255,211,77' : '47,107,255';
+      ctx.fillStyle = `rgba(${rgb},0.13)`; roundRect(p.x + 2.5, p.y + 2.5, cell - 5, cell - 5, cell * 0.2); ctx.fill();
       ctx.fillStyle = `rgba(${rgb},0.7)`; ctx.beginPath(); ctx.arc(p.x + cell / 2, p.y + cell / 2, cell * 0.07, 0, Math.PI * 2); ctx.fill();
     }
     if (o.orders) for (const ord of o.orders) {
@@ -192,7 +191,7 @@
     if (o.sel) {
       const c = center(o.sel.col, o.sel.row), r = cell * 0.45;
       ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.stroke();
-      ctx.strokeStyle = 'rgba(59,107,255,0.75)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(c.x, c.y, r + 3, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(47,107,255,0.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(c.x, c.y, r + 3, 0, Math.PI * 2); ctx.stroke();
     }
   }
   function drawPlayer(p) {
@@ -205,8 +204,9 @@
     if (p.adv) { ctx.strokeStyle = '#19a64a'; ctx.lineWidth = 2; ctx.strokeRect(x + 3, y + 3, cell - 6, cell - 6); }
     const team = p.team === 0 ? 'blue' : 'red';
     S.drawGrid(ctx, ox, oy, U, { team, skin: p.look.skin, hair: p.look.hair, hairColor: p.look.hairColor, role: p.pos === 'GK' ? 'gk' : 'out' });
-    ctx.fillStyle = '#555'; ctx.font = `${Math.round(cell * 0.15)}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'center';
-    ctx.fillText(p.name.split(' ').slice(-1)[0], x + cell / 2, y + cell - 3); ctx.textAlign = 'left';
+    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 2; ctx.fillStyle = '#ffffff';
+    ctx.font = `600 ${Math.round(cell * 0.15)}px "Space Grotesk", ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'center';
+    ctx.fillText(p.name.split(' ').slice(-1)[0], x + cell / 2, y + cell - 3); ctx.restore(); ctx.textAlign = 'left';
   }
 
   function drawBall(loose) {

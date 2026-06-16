@@ -3,8 +3,11 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-<meta name="theme-color" content="#0b0b0f" />
+<meta name="theme-color" content="#ffffff" />
 <title>TURF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body>
@@ -66,7 +69,7 @@
       <div id="lobby-code" class="token big">—</div>
       <div class="spinner"></div>
       <div class="sub">Waiting for your friend…</div>
-      <button id="lobby-cancel" class="ghost">Cancel</button>
+      <button id="lobby-cancel" class="link close">Cancel</button>
     </div>
   </section>
 
@@ -137,7 +140,7 @@
         <button id="diff-easy" class="primary big">Easy bot</button>
         <button id="diff-hard" class="primary big red">Hard bot</button>
       </div>
-      <button id="diff-cancel" class="link">Cancel</button>
+      <button id="diff-cancel" class="link close">Cancel</button>
     </div>
   </div>
 
@@ -172,7 +175,7 @@
         <button id="tut-back" class="ghost">Back</button>
         <button id="tut-next" class="primary">Next</button>
       </div>
-      <button id="tut-skip" class="link">Close</button>
+      <button id="tut-skip" class="link close">Close</button>
     </div>
   </div>
 
@@ -183,7 +186,7 @@
       <div class="ov-prompt">Enter a team code to load it on this device.</div>
       <div class="row"><input id="code-input" maxlength="4" placeholder="CODE" /><button id="code-go" class="primary">Load</button></div>
       <div id="code-err" class="err"></div>
-      <button id="code-cancel" class="link">Cancel</button>
+      <button id="code-cancel" class="link close">Cancel</button>
     </div>
   </div>
 
