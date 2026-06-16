@@ -1,6 +1,6 @@
 /* TURF client controller. Plain globals, no build step. */
 (function () {
-  const VERSION = 'v0.6.1';
+  const VERSION = 'v0.6.5';
   const $ = (id) => document.getElementById(id);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const cheb = (a, b) => Math.max(Math.abs(a.col - b.col), Math.abs(a.row - b.row));
@@ -122,11 +122,15 @@
     $('tile-col-cap').textContent = `${allOwned().length} cards`;
     show('screen-home'); maybeFirstTutorial();
   }
-  $('btn-solo').onclick = () => ov('ov-diff', true);
-  $('diff-easy').onclick = () => { ov('ov-diff', false); sendWs({ t: 'soloMatch', difficulty: 'easy', freddie: $('diff-freddie').checked }); };
-  $('diff-hard').onclick = () => { ov('ov-diff', false); sendWs({ t: 'soloMatch', difficulty: 'hard', freddie: $('diff-freddie').checked }); };
+  const modeOf = (fr, l2) => $(fr).checked ? 'freddie' : ($(l2).checked ? 'louis2' : 'normal');
+  const exclusive = (a, b) => { $(a).addEventListener('change', () => { if ($(a).checked) $(b).checked = false; }); };
+  exclusive('freddie-toggle', 'louis2-toggle'); exclusive('louis2-toggle', 'freddie-toggle');
+  exclusive('diff-freddie', 'diff-louis2'); exclusive('diff-louis2', 'diff-freddie');
+  $('btn-solo').onclick = () => { $('diff-freddie').checked = false; $('diff-louis2').checked = false; ov('ov-diff', true); };
+  $('diff-easy').onclick = () => { ov('ov-diff', false); sendWs({ t: 'soloMatch', difficulty: 'easy', mode: modeOf('diff-freddie', 'diff-louis2') }); };
+  $('diff-hard').onclick = () => { ov('ov-diff', false); sendWs({ t: 'soloMatch', difficulty: 'hard', mode: modeOf('diff-freddie', 'diff-louis2') }); };
   $('diff-cancel').onclick = () => ov('ov-diff', false);
-  $('btn-online').onclick = () => { $('lobby-box').classList.add('hidden'); $('online-err').textContent = ''; show('screen-online'); };
+  $('btn-online').onclick = () => { $('freddie-toggle').checked = false; $('louis2-toggle').checked = false; $('lobby-box').classList.add('hidden'); $('online-err').textContent = ''; show('screen-online'); };
   $('btn-collection').onclick = () => openSquad();
   $('btn-rules').onclick = () => startTutorial(false);
   $('btn-edit').onclick = openSquad;
@@ -145,7 +149,7 @@
   };
   $('code-cancel').onclick = () => ov('ov-code', false);
   $('code-go').onclick = () => { const c = $('code-input').value.trim(); if (c) { lsSet('turf_token', c); St.token = c; sendWs({ t: 'login', token: c }); ov('ov-code', false); } };
-  $('btn-create').onclick = () => sendWs({ t: 'createRoom', freddie: $('freddie-toggle').checked });
+  $('btn-create').onclick = () => sendWs({ t: 'createRoom', mode: modeOf('freddie-toggle', 'louis2-toggle') });
   $('btn-join').onclick = () => { const c = $('join-code').value.trim().toUpperCase(); if (c) sendWs({ t: 'joinRoom', code: c }); };
   $('lobby-cancel').onclick = () => { sendWs({ t: 'leave' }); goHome(); };
 
@@ -397,7 +401,7 @@
         else if (ev.t === 'intercept') Pitch.addFloat('INTERCEPTED', ev.at.col, ev.at.row, '#ff3b4e');
         else if (ev.t === 'loose') Pitch.addFloat('LOOSE BALL', ev.at.col, ev.at.row, '#b8860b');
         else if (ev.t === 'control') Pitch.addFloat(ev.inBehind ? 'IN BEHIND!' : 'CONTROLLED', ev.at.col, ev.at.row, ev.inBehind ? '#e0a200' : '#1f50d8');
-        else if (ev.t === 'challenge') Pitch.addFloat(ev.win === 'defender' ? 'WON BALL!' : 'SHIELDED', ev.at.col, ev.at.row, ev.win === 'defender' ? '#ff3b4e' : '#2f6bff');
+        else if (ev.t === 'challenge') Pitch.addFloat(ev.win === 'defender' ? 'TACKLED!' : 'SHIELDED', ev.at.col, ev.at.row, ev.win === 'defender' ? '#ff3b4e' : '#2f6bff');
       }
     };
     if (landDelay) setTimeout(float, landDelay); else float();

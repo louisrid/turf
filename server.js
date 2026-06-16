@@ -10,7 +10,7 @@ import { makePack, squadAverage, makeSquadFor } from './lib/players.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
-const SERVER_VERSION = 'v0.6.1';
+const SERVER_VERSION = 'v0.6.5';
 const PLANNING_MS = Number(process.env.PLANNING_MS || 45000);
 const DECISION_MS = Number(process.env.DECISION_MS || 20000);
 const GOAL_TARGET = Number(process.env.GOAL_TARGET || 1);
@@ -65,7 +65,7 @@ function startMatch(room) {
   let squadB;
   if (room.bot) squadB = room.bot.squad;
   else { const b = room.players[1]; squadB = validSquad(b.profile) ? b.profile.squad : makeSquadFor('easy'); }
-  room.match = engine.createMatch(squadA, squadB, !!room.freddie);
+  room.match = engine.createMatch(squadA, squadB, room.mode || 'normal');
   room.match.easyBotTeam = (room.bot && room.bot.diff === 'easy') ? room.bot.team : -1;
   // who starts with the ball: easy -> human always; hard -> bot 60% of the time; PvP -> coin flip
   let startTeam = 0;
@@ -337,7 +337,7 @@ wss.on('connection', (ws) => {
           const diff = msg.difficulty === 'hard' ? 'hard' : 'easy';
           const code = roomCode();
           const room = { code, players: [{ ws, profile: ws.profile, team: 0 }],
-                         bot: { team: 1, diff, squad: makeSquadFor(diff) }, match: null, timer: null, freddie: !!msg.freddie };
+                         bot: { team: 1, diff, squad: makeSquadFor(diff) }, match: null, timer: null, mode: msg.mode || (msg.freddie ? 'freddie' : 'normal') };
           rooms.set(code, room); ws.roomCode = code;
           startMatch(room);
           break;
@@ -345,7 +345,7 @@ wss.on('connection', (ws) => {
         case 'createRoom': {
           if (!ws.profile) return send(ws, { t: 'error', msg: 'Log in first.' });
           const code = roomCode();
-          rooms.set(code, { code, players: [{ ws, profile: ws.profile, team: 0 }], match: null, timer: null, freddie: !!msg.freddie });
+          rooms.set(code, { code, players: [{ ws, profile: ws.profile, team: 0 }], match: null, timer: null, mode: msg.mode || (msg.freddie ? 'freddie' : 'normal') });
           ws.roomCode = code;
           send(ws, { t: 'roomCreated', code });
           break;
