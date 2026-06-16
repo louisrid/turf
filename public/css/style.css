@@ -156,8 +156,8 @@ button{font-family:var(--body);cursor:pointer;border:none;color:inherit;backgrou
 .submit{width:100%;font-size:clamp(17px,4.8vw,19px);padding:15px}
 .submit.waiting{background:var(--panel2);color:var(--sub);box-shadow:none}
 .long-status{text-align:center;font-weight:800;font-size:12px;letter-spacing:.3px;min-height:17px;margin:-2px 0 2px}
-.long-status.ready{color:var(--green2)}
-.long-status.cooling{color:var(--sub)}
+.long-status.ready{color:#10b75c}
+.long-status.cooling{color:#e0a200}
 .match-foot{display:flex;justify-content:center}
 .leave-btn{background:var(--red);color:#fff;font-weight:700;font-size:13px;letter-spacing:.3px;
   border-radius:12px;padding:10px 22px;box-shadow:0 3px 0 var(--red2)}
@@ -228,7 +228,12 @@ button{font-family:var(--body);cursor:pointer;border:none;color:inherit;backgrou
 .pack-cards .rc .back-face{display:none;position:absolute;inset:0;align-items:center;justify-content:center;font-family:var(--title);letter-spacing:3px;color:var(--sub);background:var(--panel2);border-radius:11px}
 .pack-cards .rc.facedown .back-face{display:flex}
 .pack-cards .rc.facedown canvas,.pack-cards .rc.facedown .pos,.pack-cards .rc.facedown .nm,.pack-cards .rc.facedown .cstats{visibility:hidden}
-.pack-cards .rc.reveal{animation:pop .5s}
+.pack-cards .rc.reveal{animation:cardReveal .6s cubic-bezier(.2,.8,.25,1.2); box-shadow:0 14px 34px rgba(0,0,0,.28)}
+@keyframes cardReveal{0%{transform:rotateY(82deg) scale(.7);opacity:.2}55%{transform:rotateY(-10deg) scale(1.1)}100%{transform:rotateY(0) scale(1);opacity:1}}
+.got{font-family:var(--title);font-size:clamp(19px,5.2vw,24px);display:inline-block;animation:gotPop .5s cubic-bezier(.2,.8,.25,1.4) both}
+@keyframes gotPop{0%{transform:scale(.3);opacity:0}60%{transform:scale(1.18)}100%{transform:scale(1);opacity:1}}
+.got-common{color:#7b828e}.got-uncommon{color:#2e9e54}.got-rare{color:#2f6bff}.got-elite{color:#e0a200}
+.got-legendary{background:linear-gradient(90deg,#a64bf4,#ff5db1);-webkit-background-clip:text;background-clip:text;color:transparent}
 .pack-cards .rc.r-common{background:#7b828e;border-color:#5f6671}
 .pack-cards .rc.r-uncommon{background:#2e9e54;border-color:#23823f}
 .pack-cards .rc.r-rare{background:#2f6bff;border-color:#1f50d8}

@@ -1,6 +1,6 @@
 /* TURF client controller. Plain globals, no build step. */
 (function () {
-  const VERSION = 'v0.5.4';
+  const VERSION = 'v0.5.5';
   const $ = (id) => document.getElementById(id);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const cheb = (a, b) => Math.max(Math.abs(a.col - b.col), Math.abs(a.row - b.row));
@@ -38,8 +38,10 @@
 
   function paintFigure(canvas, p, opt) {
     const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.imageSmoothingEnabled = false;
-    const S = window.Sprites, U = canvas.width / 18;
-    const ox = (canvas.width - 16 * U) / 2, oy = (canvas.height - 22 * U) / 2;
+    const S = window.Sprites;
+    const U = opt.face ? canvas.width / 10.5 : canvas.width / 18;
+    const ox = (canvas.width - 16 * U) / 2;
+    const oy = opt.face ? (canvas.height * 0.5 - 6.2 * U) : (canvas.height - 22 * U) / 2;
     S.drawFigure(ctx, ox, oy, U, { team: opt.team || 'blue', skin: p.look.skin, hair: p.look.hair, hairColor: p.look.hairColor, beard: p.look.beard, view: opt.view || 'front', role: p.pos === 'GK' ? 'gk' : 'out' });
   }
   function mkCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
@@ -168,8 +170,9 @@
   function toggleSquad(p) { if (editActive.includes(p.id)) editActive = editActive.filter(x => x !== p.id); else if (editActive.length < 3) editActive.push(p.id); renderSquad(); }
   function playerCard(p) {
     const card = document.createElement('div'); card.className = 'card r-' + rarity(p.ovr);
-    const c = mkCanvas(54, 58); paintFigure(c, p, { team: 'blue' }); card.appendChild(c);
-    card.insertAdjacentHTML('beforeend', `<div class="pos">${p.pos}</div><div class="nm">${p.name.split(' ').slice(-1)[0]}</div>` + statStack(p));
+    const c = mkCanvas(60, 60); paintFigure(c, p, { team: 'blue', face: true }); card.appendChild(c);
+    const posChip = p.pos === 'GK' ? '<div class="pos">GK</div>' : '';
+    card.insertAdjacentHTML('beforeend', posChip + `<div class="nm">${p.name.split(' ').slice(-1)[0]}</div>` + statStack(p));
     return card;
   }
   $('sq-save').onclick = () => {
@@ -247,7 +250,7 @@
     const ls = document.getElementById('long-status');
     if (ls) {
       const cd = s.longCd ? (s.longCd[St.you] || 0) : 0;
-      ls.textContent = cd > 0 ? `Long ball: cooldown ${cd}` : 'Long ball: ready';
+      ls.textContent = cd > 0 ? `⏳ Long ball: ${cd} turn${cd > 1 ? 's' : ''} left` : '✓ Long ball ready';
       ls.className = 'long-status' + (cd > 0 ? ' cooling' : ' ready');
     }
   }
@@ -452,12 +455,18 @@
       label.textContent = 'Tap to reveal your new player';
       const pl = m.pack[0], r = rarity(pl.ovr);
       const card = document.createElement('div'); card.className = 'rc r-' + r + ' facedown';
-      const c = mkCanvas(104, 104); paintFigure(c, pl, { team: 'blue' }); card.appendChild(c);
-      card.insertAdjacentHTML('beforeend', `<div class="pos">${pl.pos}</div><div class="nm">${pl.name.split(' ').slice(-1)[0]}</div>` + statStack(pl) +
+      const c = mkCanvas(150, 150); paintFigure(c, pl, { team: 'blue', face: true }); card.appendChild(c);
+      const posChip = pl.pos === 'GK' ? '<div class="pos">GK</div>' : '';
+      card.insertAdjacentHTML('beforeend', posChip + `<div class="nm">${pl.name.split(' ').slice(-1)[0]}</div>` + statStack(pl) +
         `<div class="back-face">TURF</div>`);
-      const reveal = () => { card.classList.remove('facedown'); card.classList.add('reveal'); label.textContent = 'New player added to your collection'; };
+      const reveal = () => {
+        if (!card.classList.contains('facedown')) return;
+        card.classList.remove('facedown'); card.classList.add('reveal');
+        const art = /^[aeiou]/i.test(RAR_LABEL[r]) ? 'AN' : 'A';
+        label.innerHTML = `<span class="got got-${r}">YOU GOT ${art} ${RAR_LABEL[r].toUpperCase()}!</span>`;
+      };
       card.onclick = reveal; wrap.appendChild(card);
-      setTimeout(reveal, 1400);
+      setTimeout(reveal, 1300);
     } else label.textContent = '';
     ov('ov-shoot', false); ov('ov-end', true);
   }

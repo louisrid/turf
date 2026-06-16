@@ -10,7 +10,7 @@ import { makePack, squadAverage, makeSquadFor } from './lib/players.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
-const SERVER_VERSION = 'v0.5.4';
+const SERVER_VERSION = 'v0.5.5';
 const PLANNING_MS = Number(process.env.PLANNING_MS || 45000);
 const DECISION_MS = Number(process.env.DECISION_MS || 20000);
 const GOAL_TARGET = Number(process.env.GOAL_TARGET || 1);
@@ -170,7 +170,7 @@ async function endMatch(room, winnerTeam) {
       p.profile.goalsAgainst = (p.profile.goalsAgainst || 0) + room.match.score[opp];
       if (won) {
         p.profile.wins = (p.profile.wins || 0) + 1;
-        pack = makePack(room.bot ? room.bot.diff : 'hard');
+        pack = makePack(room.bot ? room.bot.diff : 'pvp');
         p.profile.packs = (p.profile.packs || 0) + 1;
         p.profile.collection = (p.profile.collection || []).concat(pack);
       } else if (!draw) {
@@ -217,7 +217,7 @@ async function forfeitLeave(ws) {
           opp.profile.wins = (opp.profile.wins || 0) + 1;
           opp.profile.goalsFor = (opp.profile.goalsFor || 0) + m.score[opp.team];
           opp.profile.goalsAgainst = (opp.profile.goalsAgainst || 0) + m.score[1 - opp.team];
-          const pack = makePack('hard');
+          const pack = makePack('pvp');
           opp.profile.packs = (opp.profile.packs || 0) + 1;
           opp.profile.collection = (opp.profile.collection || []).concat(pack);
           try { await saveProfile(opp.profile); } catch {}
@@ -264,7 +264,7 @@ async function expirePause(room, slot) {
     opp.profile.wins = (opp.profile.wins || 0) + 1;
     opp.profile.goalsFor = (opp.profile.goalsFor || 0) + m.score[opp.team];
     opp.profile.goalsAgainst = (opp.profile.goalsAgainst || 0) + m.score[1 - opp.team];
-    const pack = makePack('hard');
+    const pack = makePack('pvp');
     opp.profile.packs = (opp.profile.packs || 0) + 1;
     opp.profile.collection = (opp.profile.collection || []).concat(pack);
     try { await saveProfile(opp.profile); } catch {}
