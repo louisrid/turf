@@ -106,8 +106,8 @@
     ctx.clearRect(0, 0, W, H);
     // surrounds behind the goals (light)
     ctx.fillStyle = '#e8ebef'; ctx.fillRect(0, 0, W, H);
-    // pitch (barely-there green)
-    ctx.fillStyle = '#f3faf5'; ctx.fillRect(0, gridY, W, gridH);
+    // pitch (white)
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, gridY, W, gridH);
     // grid (bold, clearly visible)
     ctx.strokeStyle = '#a9afb8'; ctx.lineWidth = 1.5;
     for (let c = 0; c <= COLS; c++) line(c * cell, gridY, c * cell, gridY + gridH);
@@ -199,7 +199,7 @@
     if (p.adv) { ctx.strokeStyle = '#19a64a'; ctx.lineWidth = 2; ctx.strokeRect(x + 3, y + 3, cell - 6, cell - 6); }
     const team = p.team === 0 ? 'blue' : 'red';
     S.drawGrid(ctx, ox, oy, U, { team, skin: p.look.skin, hair: p.look.hair, hairColor: p.look.hairColor, role: p.pos === 'GK' ? 'gk' : 'out' });
-    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 2; ctx.fillStyle = '#ffffff';
+    ctx.save(); ctx.shadowColor = 'rgba(255,255,255,0.9)'; ctx.shadowBlur = 3; ctx.fillStyle = '#14161b';
     ctx.font = `600 ${Math.round(cell * 0.15)}px "Space Grotesk", ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'center';
     ctx.fillText(p.name.split(' ').slice(-1)[0], x + cell / 2, y + cell - 3); ctx.restore(); ctx.textAlign = 'left';
   }
